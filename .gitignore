@@ -26,3 +26,8 @@ data/processed/
 *.duckdb
 *.db
 *.log
+
+# Python 套件建置產物
+*.egg-info/
+build/
+dist/
