@@ -1,8 +1,11 @@
-from moa_agri_pipeline.extract.moa_api import fetch_sample_data
+from moa_agri_pipeline.extract.moa_api import fetch_page
 
 
 def main() -> None:
-    rows = fetch_sample_data()
+    rows = fetch_page(
+        top=10,
+        skip=0,
+    )
 
     print(f"回傳型別：{type(rows)}")
     print(f"資料筆數：{len(rows)}")
