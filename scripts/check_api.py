@@ -1,9 +1,15 @@
 from datetime import date
+import logging
 
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 
 
 def main() -> None:
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+    
     query_date = date(2026, 8, 5)
 
     rows = fetch_all_pages(

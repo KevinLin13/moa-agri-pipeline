@@ -2,7 +2,9 @@ from typing import Any
 from datetime import date
 
 import requests
+import logging
 
+logger = logging.getLogger(__name__)
 
 API_URL = (
     "https://data.moa.gov.tw/"
@@ -86,6 +88,16 @@ def fetch_all_pages(
 
         all_rows.extend(page)
 
+        page_number = skip // page_size + 1
+
+        logger.info(
+            "完成第 %d 頁：skip=%d，本頁=%d 筆，累計=%d 筆",
+            page_number,
+            skip,
+            len(page),
+            len(all_rows),
+        )
+        
         if len(page) < page_size:
             break
 
