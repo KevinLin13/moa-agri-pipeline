@@ -1,4 +1,5 @@
 from typing import Any
+from datetime import date
 
 import requests
 
@@ -8,10 +9,22 @@ API_URL = (
     "Service/OpenData/FromM/FarmTransData.aspx"
 )
 
+def format_minguo_date(value: date) -> str:
+    """將 Python 西元日期轉成農業部 API 使用的民國日期格式。"""
+
+    minguo_year = value.year - 1911
+
+    if minguo_year <= 0:
+        raise ValueError("日期必須晚於民國元年")
+
+    return f"{minguo_year:03d}.{value.month:02d}.{value.day:02d}"
+
 
 def fetch_page(
     top: int = 10,
     skip: int = 0,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[dict[str, Any]]:
     """從農業部 API 取得一頁農產品交易行情資料。"""
 
@@ -21,10 +34,19 @@ def fetch_page(
     if skip < 0:
         raise ValueError("skip 不得小於 0")
 
-    params = {
+    if start_date and end_date and start_date > end_date:
+        raise ValueError("start_date 不得晚於 end_date")
+    
+    params: dict[str, int | str] = {
         "$top": top,
         "$skip": skip,
     }
+
+    if start_date is not None:
+        params["StartDate"] = format_minguo_date(start_date)
+
+    if end_date is not None:
+        params["EndDate"] = format_minguo_date(end_date)
 
     response = requests.get(
         API_URL,
@@ -42,6 +64,8 @@ def fetch_page(
     return data
 
 def fetch_all_pages(
+    start_date: date | None = None,
+    end_date: date | None = None,
     page_size: int = 1000,
 ) -> list[dict[str, Any]]:
     """分頁取得農業部 API 目前預設日期範圍內的全部資料。"""
@@ -56,6 +80,8 @@ def fetch_all_pages(
         page = fetch_page(
             top=page_size,
             skip=skip,
+            start_date=start_date,
+            end_date=end_date,
         )
 
         all_rows.extend(page)

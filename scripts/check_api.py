@@ -1,9 +1,18 @@
+from datetime import date
+
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 
 
 def main() -> None:
-    rows = fetch_all_pages(page_size=1000)
+    query_date = date(2026, 8, 5)
 
+    rows = fetch_all_pages(
+        start_date=query_date,
+        end_date=query_date,
+        page_size=1000,
+    )
+
+    print(f"查詢日期：{query_date}")
     print(f"總資料筆數：{len(rows)}")
 
     if rows:
