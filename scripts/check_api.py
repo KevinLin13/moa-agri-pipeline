@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
+from moa_agri_pipeline.quality.raw import validate_raw_records
 from moa_agri_pipeline.load.raw_json import save_raw_json
 from moa_agri_pipeline.load.metadata import save_extract_metadata
 from moa_agri_pipeline.transform.agri_prices import transform_agri_prices
@@ -34,6 +35,10 @@ def main() -> None:
         page_size=1000,
         row_count=len(rows),
     )
+
+    validate_raw_records(rows)
+    print("\nRaw Validation：")
+    print(f"檢查通過，共 {len(rows)} 筆")
 
     transformed_rows = transform_agri_prices(rows)
 
