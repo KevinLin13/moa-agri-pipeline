@@ -6,6 +6,8 @@ import logging
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.load.raw_json import save_raw_json
 from moa_agri_pipeline.load.metadata import save_extract_metadata
+from moa_agri_pipeline.transform.agri_prices import rename_fields
+
 
 def main() -> None:
     logging.basicConfig(
@@ -33,6 +35,9 @@ def main() -> None:
         page_size=1000,
         row_count=len(rows),
     )
+
+    transformed_rows = rename_fields(rows)
+
     print(f"查詢日期：{query_date}")
     print(f"總資料筆數：{len(rows)}")
     print(f"原始資料已保存：{output_path}")
@@ -47,6 +52,9 @@ def main() -> None:
     else:
         print("API 回傳空清單")
 
+    if transformed_rows:
+        print("\n轉換後第一筆資料：")
+        print(transformed_rows[0])
 
 if __name__ == "__main__":
     main()

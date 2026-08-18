@@ -38,7 +38,7 @@ def fetch_page(
 
     if start_date and end_date and start_date > end_date:
         raise ValueError("start_date 不得晚於 end_date")
-    
+
     params: dict[str, int | str] = {
         "$top": top,
         "$skip": skip,
@@ -97,7 +97,7 @@ def fetch_all_pages(
             len(page),
             len(all_rows),
         )
-        
+
         if len(page) < page_size:
             break
 
