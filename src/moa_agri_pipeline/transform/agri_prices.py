@@ -75,3 +75,14 @@ def convert_numeric_fields(
         }
         for record in records
     ]
+
+def transform_agri_prices(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """將農業部農產品交易行情資料轉換成內部標準格式。"""
+
+    transformed_records = rename_fields(records)
+    transformed_records = convert_trade_dates(transformed_records)
+    transformed_records = convert_numeric_fields(transformed_records)
+
+    return transformed_records
