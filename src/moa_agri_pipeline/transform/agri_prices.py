@@ -51,3 +51,27 @@ def convert_trade_dates(
         }
         for record in records
     ]
+
+NUMERIC_FIELDS = (
+    "upper_price",
+    "middle_price",
+    "lower_price",
+    "avg_price",
+    "volume",
+)
+
+def convert_numeric_fields(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """將價格與交易量欄位統一轉換成 float。"""
+
+    return [
+        {
+            **record,
+            **{
+                field: float(record[field])
+                for field in NUMERIC_FIELDS
+            },
+        }
+        for record in records
+    ]

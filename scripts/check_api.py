@@ -7,6 +7,7 @@ from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.load.raw_json import save_raw_json
 from moa_agri_pipeline.load.metadata import save_extract_metadata
 from moa_agri_pipeline.transform.agri_prices import (
+    convert_numeric_fields,
     convert_trade_dates,
     rename_fields,
 )
@@ -40,6 +41,7 @@ def main() -> None:
 
     transformed_rows = rename_fields(rows)
     transformed_rows = convert_trade_dates(transformed_rows)
+    transformed_rows = convert_numeric_fields(transformed_rows)
 
     print(f"查詢日期：{query_date}")
     print(f"總資料筆數：{len(rows)}")
@@ -56,10 +58,17 @@ def main() -> None:
         print("API 回傳空清單")
 
     if transformed_rows:
+        first_row = transformed_rows[0]
+
         print("\n轉換後第一筆資料：")
-        print(transformed_rows[0])
-        print("\ntrade_date 型別：")
-        print(type(transformed_rows[0]["trade_date"]))
+        print(first_row)
+
+        print("\n數值欄位型別：")
+        print("upper_price:", type(first_row["upper_price"]))
+        print("middle_price:", type(first_row["middle_price"]))
+        print("lower_price:", type(first_row["lower_price"]))
+        print("avg_price:", type(first_row["avg_price"]))
+        print("volume:", type(first_row["volume"]))
 
 if __name__ == "__main__":
     main()
