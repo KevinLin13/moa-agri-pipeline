@@ -5,6 +5,9 @@ import logging
 
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.quality.raw import validate_raw_records
+from moa_agri_pipeline.quality.checks import (
+    validate_transformed_records,
+)
 from moa_agri_pipeline.load.raw_json import save_raw_json
 from moa_agri_pipeline.load.metadata import save_extract_metadata
 from moa_agri_pipeline.transform.agri_prices import transform_agri_prices
@@ -41,6 +44,9 @@ def main() -> None:
     print(f"檢查通過，共 {len(rows)} 筆")
 
     transformed_rows = transform_agri_prices(rows)
+    validate_transformed_records(transformed_rows)
+    print("\nData Quality：")
+    print(f"檢查通過，共 {len(transformed_rows)} 筆")
 
     print(f"查詢日期：{query_date}")
     print(f"總資料筆數：{len(rows)}")
