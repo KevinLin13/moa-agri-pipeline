@@ -1,5 +1,5 @@
 from typing import Any
-
+from datetime import date
 
 COLUMN_MAPPING = {
     "交易日期": "trade_date",
@@ -15,7 +15,6 @@ COLUMN_MAPPING = {
     "交易量": "volume",
 }
 
-
 def rename_fields(
     records: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -25,6 +24,30 @@ def rename_fields(
         {
             COLUMN_MAPPING.get(key, key): value
             for key, value in record.items()
+        }
+        for record in records
+    ]
+
+def parse_minguo_date(value: str) -> date:
+    """將民國日期字串轉換成 Python date。"""
+
+    year_text, month_text, day_text = value.split(".")
+
+    year = int(year_text) + 1911
+    month = int(month_text)
+    day = int(day_text)
+
+    return date(year, month, day)
+
+def convert_trade_dates(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """將資料中的交易日期轉換成 Python date。"""
+
+    return [
+        {
+            **record,
+            "trade_date": parse_minguo_date(record["trade_date"]),
         }
         for record in records
     ]

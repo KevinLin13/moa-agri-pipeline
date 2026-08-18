@@ -6,8 +6,10 @@ import logging
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.load.raw_json import save_raw_json
 from moa_agri_pipeline.load.metadata import save_extract_metadata
-from moa_agri_pipeline.transform.agri_prices import rename_fields
-
+from moa_agri_pipeline.transform.agri_prices import (
+    convert_trade_dates,
+    rename_fields,
+)
 
 def main() -> None:
     logging.basicConfig(
@@ -37,6 +39,7 @@ def main() -> None:
     )
 
     transformed_rows = rename_fields(rows)
+    transformed_rows = convert_trade_dates(transformed_rows)
 
     print(f"查詢日期：{query_date}")
     print(f"總資料筆數：{len(rows)}")
@@ -55,6 +58,8 @@ def main() -> None:
     if transformed_rows:
         print("\n轉換後第一筆資料：")
         print(transformed_rows[0])
+        print("\ntrade_date 型別：")
+        print(type(transformed_rows[0]["trade_date"]))
 
 if __name__ == "__main__":
     main()
