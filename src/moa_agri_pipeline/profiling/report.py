@@ -111,3 +111,58 @@ def _print_low_cardinality_values(
             print(
                 f"  {value}: {count}"
             )
+
+def print_relationship_profile(
+    title: str,
+    profile: dict[str, Any],
+    *,
+    show_left_conflicts: bool = True,
+    show_right_conflicts: bool = False,
+) -> None:
+    """以易讀格式顯示兩個欄位的關係剖析結果。"""
+
+    print(f"\n=== {title} ===")
+
+    left_field = profile["left_field"]
+    right_field = profile["right_field"]
+
+    print(f"{left_field} → {right_field}")
+
+    print("\nNULL 組合：")
+
+    for pattern, count in profile["null_patterns"].items():
+        left_null, right_null = pattern
+
+        print(
+            f"  {left_field} NULL={left_null}, "
+            f"{right_field} NULL={right_null}: "
+            f"{count}"
+        )
+
+    if show_left_conflicts:
+        conflicts = profile["left_with_multiple_right"]
+
+        print(
+            f"\n同一 {left_field} 對應多個 "
+            f"{right_field}：{len(conflicts)} 組"
+        )
+
+        for value, mapped_values in conflicts.items():
+            print(
+                f"  {value!r} → "
+                f"{', '.join(map(str, mapped_values))}"
+            )
+
+    if show_right_conflicts:
+        conflicts = profile["right_with_multiple_left"]
+
+        print(
+            f"\n同一 {right_field} 對應多個 "
+            f"{left_field}：{len(conflicts)} 組"
+        )
+
+        for value, mapped_values in conflicts.items():
+            print(
+                f"  {value!r} → "
+                f"{', '.join(map(str, mapped_values))}"
+            )

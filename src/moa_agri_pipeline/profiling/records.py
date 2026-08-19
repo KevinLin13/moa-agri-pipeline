@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict
 from math import isfinite
 from typing import Any
 
@@ -111,4 +111,62 @@ def profile_records(
         "record_type_counts": dict(record_type_counts),
         "field_count": len(fields),
         "fields": field_profiles,
+    }
+
+def profile_field_relationship(
+    records: list[dict[str, Any]],
+    left_field: str,
+    right_field: str,
+) -> dict[str, Any]:
+    """分析兩個欄位之間的值對應關係。"""
+
+    left_to_right = defaultdict(set)
+    right_to_left = defaultdict(set)
+
+    null_patterns = Counter()
+
+    for record in records:
+        left_value = record.get(left_field)
+        right_value = record.get(right_field)
+
+        null_patterns[
+            (
+                left_value is None,
+                right_value is None,
+            )
+        ] += 1
+
+        if (
+            left_value is not None
+            and right_value is not None
+        ):
+            left_to_right[left_value].add(
+                right_value
+            )
+            right_to_left[right_value].add(
+                left_value
+            )
+
+    left_with_multiple_right = {
+        left: sorted(values)
+        for left, values in left_to_right.items()
+        if len(values) > 1
+    }
+
+    right_with_multiple_left = {
+        right: sorted(values)
+        for right, values in right_to_left.items()
+        if len(values) > 1
+    }
+
+    return {
+        "left_field": left_field,
+        "right_field": right_field,
+        "null_patterns": dict(null_patterns),
+        "left_with_multiple_right": (
+            left_with_multiple_right
+        ),
+        "right_with_multiple_left": (
+            right_with_multiple_left
+        ),
     }
