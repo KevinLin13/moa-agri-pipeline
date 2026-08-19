@@ -1,0 +1,113 @@
+from typing import Any
+
+
+def _format_type_counts(
+    type_counts: dict[str, int],
+) -> str:
+    """將型別統計轉成適合閱讀的文字。"""
+
+    return ", ".join(
+        f"{type_name}={count}"
+        for type_name, count in type_counts.items()
+    )
+
+
+def print_profile(
+    title: str,
+    profile: dict[str, Any],
+) -> None:
+    """將 Data Profile 以易讀格式輸出到終端機。"""
+
+    print(f"\n=== {title} ===")
+    print(f"Rows: {profile['row_count']}")
+    print(f"Fields: {profile['field_count']}")
+
+    record_types = _format_type_counts(
+        profile["record_type_counts"]
+    )
+    print(f"Record types: {record_types}")
+
+    print("\n欄位摘要")
+
+    print(
+        "| 欄位 | Missing Key | Null | Null % "
+        "| Blank | Unique | Types |"
+    )
+    print(
+        "|---|---:|---:|---:|---:|---:|---|"
+    )
+
+    for field, stats in profile["fields"].items():
+        type_text = _format_type_counts(
+            stats["type_counts"]
+        )
+
+        print(
+            f"| {field} "
+            f"| {stats['missing_key_count']} "
+            f"| {stats['null_count']} "
+            f"| {stats['null_ratio']:.2%} "
+            f"| {stats['blank_count']} "
+            f"| {stats['unique_count']} "
+            f"| {type_text} |"
+        )
+
+    _print_numeric_summary(profile)
+    _print_low_cardinality_values(profile)
+
+
+def _print_numeric_summary(
+    profile: dict[str, Any],
+) -> None:
+    """顯示可辨識為數值的欄位摘要。"""
+
+    numeric_fields = [
+        (field, stats["numeric_summary"])
+        for field, stats in profile["fields"].items()
+        if stats["numeric_summary"] is not None
+    ]
+
+    if not numeric_fields:
+        return
+
+    print("\n數值摘要")
+
+    print(
+        "| 欄位 | Count | Min | Max |"
+    )
+    print(
+        "|---|---:|---:|---:|"
+    )
+
+    for field, summary in numeric_fields:
+        print(
+            f"| {field} "
+            f"| {summary['count']} "
+            f"| {summary['min']} "
+            f"| {summary['max']} |"
+        )
+
+
+def _print_low_cardinality_values(
+    profile: dict[str, Any],
+) -> None:
+    """顯示種類較少的欄位常見值。"""
+
+    low_cardinality_fields = [
+        (field, stats)
+        for field, stats in profile["fields"].items()
+        if 0 < stats["unique_count"] <= 20
+    ]
+
+    if not low_cardinality_fields:
+        return
+
+    print("\n低基數欄位常見值")
+
+    for field, stats in low_cardinality_fields:
+        print(f"\n{field}:")
+
+        for value, count in stats["top_values"]:
+            print(
+                f"  {value}: {count}"
+            )
