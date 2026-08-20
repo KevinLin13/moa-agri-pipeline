@@ -2,6 +2,7 @@ from datetime import date
 
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.profiling.records import (
+    profile_composite_relationship,
     find_duplicate_record_groups,
     profile_duplicate_keys,
     profile_field_relationship,
@@ -125,6 +126,147 @@ def main() -> None:
 
         for record in records:
             print(record)
+
+    market_category_relationship = (
+        profile_composite_relationship(
+            transformed_rows,
+            (
+                "category_code",
+                "market_code",
+            ),
+            "market_name",
+        )
+    )
+    print(
+        "\n=== Category + Market Code / Market Name ==="
+    )
+    print(market_category_relationship)
+
+    daily_market_relationship = (
+        profile_composite_relationship(
+            transformed_rows,
+            (
+                "trade_date",
+                "category_code",
+                "market_code",
+            ),
+            "market_name",
+        )
+    )
+
+    print(
+        "\n=== Date + Category + Market Code / Market Name ==="
+    )
+    print(daily_market_relationship)
+
+    print("\n=== Market Name Conflict Details ===")
+
+    for conflict_key in daily_market_relationship["conflicts"]:
+        trade_date, category_code, market_code = conflict_key
+
+        print(f"\nKey: {conflict_key}")
+
+        matching_records = [
+            record
+            for record in transformed_rows
+            if record["trade_date"] == trade_date
+            and record["category_code"] == category_code
+            and record["market_code"] == market_code
+        ]
+
+        for record in matching_records:
+            print(
+                {
+                    "crop_code": record["crop_code"],
+                    "crop_name": record["crop_name"],
+                    "market_name": record["market_name"],
+                }
+            )
+
+        rest_records = [
+            record
+            for record in transformed_rows
+            if record["crop_code"] == "rest"
+        ]
+
+        print("\n=== Rest Record Profile ===")
+        print(f"Rows: {len(rest_records)}")
+
+        print(
+            "Category codes:",
+            sorted(
+                {
+                    record["category_code"]
+                    for record in rest_records
+                },
+                key=lambda value: str(value),
+            ),
+        )
+
+        print(
+            "Crop names:",
+            {
+                record["crop_name"]
+                for record in rest_records
+            },
+        )
+
+        print(
+            "Market names:",
+            sorted(
+                {
+                    record["market_name"]
+                    for record in rest_records
+                }
+            ),
+        )
+
+        all_zero = all(
+            record["upper_price"] == 0.0
+            and record["middle_price"] == 0.0
+            and record["lower_price"] == 0.0
+            and record["avg_price"] == 0.0
+            and record["volume"] == 0.0
+            for record in rest_records
+        )
+
+        print(f"All numeric fields zero: {all_zero}")
+
+
+        non_rest_records = [
+            record
+            for record in transformed_rows
+            if record["crop_code"] != "rest"
+        ]
+
+        non_rest_duplicate_profile = profile_duplicate_keys(
+            non_rest_records,
+            (
+                "trade_date",
+                "crop_code",
+                "market_code",
+            ),
+        )
+
+        print_duplicate_profile(
+            "Non-Rest Business Key Duplicate Profile",
+            non_rest_duplicate_profile,
+        )
+
+        rest_duplicate_profile = profile_duplicate_keys(
+            rest_records,
+            (
+                "trade_date",
+                "category_code",
+                "market_code",
+            ),
+        )
+
+        print_duplicate_profile(
+            "Rest Record Key Duplicate Profile",
+            rest_duplicate_profile,
+        )
+
 
 if __name__ == "__main__":
     main()

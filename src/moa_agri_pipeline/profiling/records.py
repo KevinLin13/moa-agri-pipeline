@@ -237,3 +237,42 @@ def find_duplicate_record_groups(
         for key, grouped_records in groups.items()
         if len(grouped_records) > 1
     }
+
+def profile_composite_relationship(
+    records: list[dict[str, Any]],
+    left_fields: tuple[str, ...],
+    right_field: str,
+) -> dict[str, Any]:
+    """分析多個欄位組成的 key 與單一欄位之間的對應關係。"""
+
+    left_to_right = defaultdict(set)
+
+    for record in records:
+        left_key = tuple(
+            record.get(field)
+            for field in left_fields
+        )
+
+        right_value = record.get(right_field)
+
+        if (
+            all(value is not None for value in left_key)
+            and right_value is not None
+        ):
+            left_to_right[left_key].add(
+                right_value
+            )
+
+    conflicts = {
+        key: sorted(values)
+        for key, values in left_to_right.items()
+        if len(values) > 1
+    }
+
+    return {
+        "left_fields": left_fields,
+        "right_field": right_field,
+        "left_key_count": len(left_to_right),
+        "conflict_count": len(conflicts),
+        "conflicts": conflicts,
+    }
