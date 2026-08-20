@@ -170,3 +170,48 @@ def profile_field_relationship(
             right_with_multiple_left
         ),
     }
+
+def profile_duplicate_keys(
+    records: list[dict[str, Any]],
+    key_fields: tuple[str, ...],
+) -> dict[str, Any]:
+    """分析指定欄位組合是否存在重複 key。"""
+
+    key_counts = Counter(
+        tuple(
+            record.get(field)
+            for field in key_fields
+        )
+        for record in records
+    )
+
+    duplicate_keys = {
+        key: count
+        for key, count in key_counts.items()
+        if count > 1
+    }
+
+    duplicate_group_count = len(
+        duplicate_keys
+    )
+
+    duplicate_row_count = sum(
+        duplicate_keys.values()
+    )
+
+    excess_duplicate_row_count = sum(
+        count - 1
+        for count in duplicate_keys.values()
+    )
+
+    return {
+        "key_fields": key_fields,
+        "row_count": len(records),
+        "unique_key_count": len(key_counts),
+        "duplicate_group_count": duplicate_group_count,
+        "duplicate_row_count": duplicate_row_count,
+        "excess_duplicate_row_count": (
+            excess_duplicate_row_count
+        ),
+        "duplicate_keys": duplicate_keys,
+    }

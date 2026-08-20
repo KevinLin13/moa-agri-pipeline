@@ -12,50 +12,6 @@ def _format_type_counts(
     )
 
 
-def print_profile(
-    title: str,
-    profile: dict[str, Any],
-) -> None:
-    """將 Data Profile 以易讀格式輸出到終端機。"""
-
-    print(f"\n=== {title} ===")
-    print(f"Rows: {profile['row_count']}")
-    print(f"Fields: {profile['field_count']}")
-
-    record_types = _format_type_counts(
-        profile["record_type_counts"]
-    )
-    print(f"Record types: {record_types}")
-
-    print("\n欄位摘要")
-
-    print(
-        "| 欄位 | Missing Key | Null | Null % "
-        "| Blank | Unique | Types |"
-    )
-    print(
-        "|---|---:|---:|---:|---:|---:|---|"
-    )
-
-    for field, stats in profile["fields"].items():
-        type_text = _format_type_counts(
-            stats["type_counts"]
-        )
-
-        print(
-            f"| {field} "
-            f"| {stats['missing_key_count']} "
-            f"| {stats['null_count']} "
-            f"| {stats['null_ratio']:.2%} "
-            f"| {stats['blank_count']} "
-            f"| {stats['unique_count']} "
-            f"| {type_text} |"
-        )
-
-    _print_numeric_summary(profile)
-    _print_low_cardinality_values(profile)
-
-
 def _print_numeric_summary(
     profile: dict[str, Any],
 ) -> None:
@@ -112,6 +68,50 @@ def _print_low_cardinality_values(
                 f"  {value}: {count}"
             )
 
+def print_profile(
+    title: str,
+    profile: dict[str, Any],
+) -> None:
+    """將 Data Profile 以易讀格式輸出到終端機。"""
+
+    print(f"\n=== {title} ===")
+    print(f"Rows: {profile['row_count']}")
+    print(f"Fields: {profile['field_count']}")
+
+    record_types = _format_type_counts(
+        profile["record_type_counts"]
+    )
+    print(f"Record types: {record_types}")
+
+    print("\n欄位摘要")
+
+    print(
+        "| 欄位 | Missing Key | Null | Null % "
+        "| Blank | Unique | Types |"
+    )
+    print(
+        "|---|---:|---:|---:|---:|---:|---|"
+    )
+
+    for field, stats in profile["fields"].items():
+        type_text = _format_type_counts(
+            stats["type_counts"]
+        )
+
+        print(
+            f"| {field} "
+            f"| {stats['missing_key_count']} "
+            f"| {stats['null_count']} "
+            f"| {stats['null_ratio']:.2%} "
+            f"| {stats['blank_count']} "
+            f"| {stats['unique_count']} "
+            f"| {type_text} |"
+        )
+
+    _print_numeric_summary(profile)
+    _print_low_cardinality_values(profile)
+
+
 def print_relationship_profile(
     title: str,
     profile: dict[str, Any],
@@ -166,3 +166,50 @@ def print_relationship_profile(
                 f"  {value!r} → "
                 f"{', '.join(map(str, mapped_values))}"
             )
+
+def print_duplicate_profile(
+    title: str,
+    profile: dict[str, Any],
+) -> None:
+    """顯示 Business Key 重複分析結果。"""
+
+    print(f"\n=== {title} ===")
+
+    key_text = " + ".join(
+        profile["key_fields"]
+    )
+
+    print(f"Candidate key: {key_text}")
+    print(f"Rows: {profile['row_count']}")
+    print(
+        "Unique keys: "
+        f"{profile['unique_key_count']}"
+    )
+    print(
+        "Duplicate key groups: "
+        f"{profile['duplicate_group_count']}"
+    )
+    print(
+        "Rows in duplicate groups: "
+        f"{profile['duplicate_row_count']}"
+    )
+    print(
+        "Excess duplicate rows: "
+        f"{profile['excess_duplicate_row_count']}"
+    )
+
+    duplicate_keys = profile[
+        "duplicate_keys"
+    ]
+
+    if not duplicate_keys:
+        return
+
+    print("\n重複 Key 範例：")
+
+    for key, count in list(
+        duplicate_keys.items()
+    )[:10]:
+        print(
+            f"  {key}: {count} 筆"
+        )

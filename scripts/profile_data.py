@@ -2,10 +2,12 @@ from datetime import date
 
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.profiling.records import (
-    profile_records,
+    profile_duplicate_keys,
     profile_field_relationship,
+    profile_records,
 )
 from moa_agri_pipeline.profiling.report import (
+    print_duplicate_profile,
     print_profile,
     print_relationship_profile,
 )
@@ -24,6 +26,8 @@ def main() -> None:
         page_size=1000,
     )
 
+    validate_raw_records(rows)
+
     raw_profile = profile_records(rows)
 
     print_profile(
@@ -31,12 +35,13 @@ def main() -> None:
         raw_profile,
     )
 
-    validate_raw_records(rows)
-
     transformed_rows = transform_agri_prices(rows)
-
     transformed_profile = profile_records(
         transformed_rows
+    )
+    print_profile(
+        "Transformed Data Profile",
+        transformed_profile,
     )
 
     category_crop_relationship = (
@@ -84,11 +89,19 @@ def main() -> None:
         show_right_conflicts=True,
     )
 
-    print_profile(
-        "Transformed Data Profile",
-        transformed_profile,
+    duplicate_profile = profile_duplicate_keys(
+        transformed_rows,
+        (
+            "trade_date",
+            "crop_code",
+            "market_code",
+        ),
     )
 
+    print_duplicate_profile(
+        "Candidate Business Key Duplicate Profile",
+        duplicate_profile,
+    )
 
 if __name__ == "__main__":
     main()
