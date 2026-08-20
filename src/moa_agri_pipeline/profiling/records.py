@@ -215,3 +215,25 @@ def profile_duplicate_keys(
         ),
         "duplicate_keys": duplicate_keys,
     }
+
+def find_duplicate_record_groups(
+    records: list[dict[str, Any]],
+    key_fields: tuple[str, ...],
+) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
+    """找出指定 key 下的完整重複資料群組。"""
+
+    groups = defaultdict(list)
+
+    for record in records:
+        key = tuple(
+            record.get(field)
+            for field in key_fields
+        )
+
+        groups[key].append(record)
+
+    return {
+        key: grouped_records
+        for key, grouped_records in groups.items()
+        if len(grouped_records) > 1
+    }
