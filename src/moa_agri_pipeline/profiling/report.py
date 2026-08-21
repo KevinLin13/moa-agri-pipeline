@@ -213,3 +213,61 @@ def print_duplicate_profile(
         print(
             f"  {key}: {count} 筆"
         )
+
+def print_numeric_distribution_profile(
+    title: str,
+    profile: dict[str, Any],
+) -> None:
+    """顯示數值欄位分布剖析結果。"""
+
+    print(f"\n=== {title} ===")
+    print(f"Rows: {profile['row_count']}")
+
+    for field, field_profile in profile["fields"].items():
+        print(f"\n{field}")
+
+        print(
+            "  Finite values: "
+            f"{field_profile['finite_count']}"
+        )
+        print(
+            "  Non-numeric: "
+            f"{field_profile['non_numeric_count']}"
+        )
+        print(
+            "  Non-finite: "
+            f"{field_profile['non_finite_count']}"
+        )
+
+        zero_rate = field_profile["zero_rate"]
+
+        if zero_rate is None:
+            zero_rate_text = "-"
+        else:
+            zero_rate_text = f"{zero_rate:.2%}"
+
+        print(
+            "  Zero: "
+            f"{field_profile['zero_count']} "
+            f"({zero_rate_text})"
+        )
+
+        for statistic in (
+            "mean",
+            "std",
+            "min",
+            "q1",
+            "median",
+            "q3",
+            "max",
+        ):
+            value = field_profile[statistic]
+
+            if value is None:
+                value_text = "-"
+            else:
+                value_text = f"{value:.2f}"
+
+            print(
+                f"  {statistic}: {value_text}"
+            )

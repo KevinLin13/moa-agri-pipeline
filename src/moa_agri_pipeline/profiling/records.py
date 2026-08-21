@@ -1,5 +1,6 @@
 from collections import Counter, defaultdict
 from math import isfinite
+from statistics import fmean, median, pstdev, quantiles
 from typing import Any
 
 
@@ -275,4 +276,93 @@ def profile_composite_relationship(
         "left_key_count": len(left_to_right),
         "conflict_count": len(conflicts),
         "conflicts": conflicts,
+    }
+
+def profile_numeric_fields(
+    records: list[dict[str, Any]],
+    fields: tuple[str, ...],
+) -> dict[str, Any]:
+    """分析指定數值欄位的分布。"""
+
+    field_profiles = {}
+
+    for field in fields:
+        values = [
+            record.get(field)
+            for record in records
+        ]
+
+        numeric_values = [
+            value
+            for value in values
+            if isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        ]
+
+        finite_values = [
+            float(value)
+            for value in numeric_values
+            if isfinite(value)
+        ]
+
+        non_numeric_count = (
+            len(values) - len(numeric_values)
+        )
+
+        non_finite_count = (
+            len(numeric_values) - len(finite_values)
+        )
+
+        zero_count = sum(
+            value == 0
+            for value in finite_values
+        )
+
+        if not finite_values:
+            field_profiles[field] = {
+                "row_count": len(values),
+                "finite_count": 0,
+                "non_numeric_count": non_numeric_count,
+                "non_finite_count": non_finite_count,
+                "zero_count": 0,
+                "zero_rate": None,
+                "mean": None,
+                "std": None,
+                "min": None,
+                "q1": None,
+                "median": None,
+                "q3": None,
+                "max": None,
+            }
+            continue
+
+        if len(finite_values) == 1:
+            q1 = finite_values[0]
+            q3 = finite_values[0]
+        else:
+            q1, _, q3 = quantiles(
+                finite_values,
+                n=4,
+                method="inclusive",
+            )
+
+        field_profiles[field] = {
+            "row_count": len(values),
+            "finite_count": len(finite_values),
+            "non_numeric_count": non_numeric_count,
+            "non_finite_count": non_finite_count,
+            "zero_count": zero_count,
+            "zero_rate": zero_count / len(finite_values),
+            "mean": fmean(finite_values),
+            "std": pstdev(finite_values),
+            "min": min(finite_values),
+            "q1": q1,
+            "median": median(finite_values),
+            "q3": q3,
+            "max": max(finite_values),
+        }
+
+    return {
+        "row_count": len(records),
+        "fields": field_profiles,
     }

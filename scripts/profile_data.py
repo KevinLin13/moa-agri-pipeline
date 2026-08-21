@@ -6,10 +6,12 @@ from moa_agri_pipeline.profiling.records import (
     find_duplicate_record_groups,
     profile_duplicate_keys,
     profile_field_relationship,
+    profile_numeric_fields,
     profile_records,
 )
 from moa_agri_pipeline.profiling.report import (
     print_duplicate_profile,
+    print_numeric_distribution_profile,
     print_profile,
     print_relationship_profile,
 )
@@ -19,37 +21,57 @@ from moa_agri_pipeline.transform.agri_prices import (
 )
 
 
-def main() -> None:
-    start_date = date(2026, 8, 1)
-    end_date = date(2026, 8, 7)
+def split_rest_records(
+    records: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """將 Transform 後資料分成休市與一般交易紀錄。"""
 
-    rows = fetch_all_pages(
-        start_date=start_date,
-        end_date=end_date,
-        page_size=1000,
-    )
+    rest_records = [
+        record
+        for record in records
+        if record["crop_code"] == "rest"
+    ]
 
-    validate_raw_records(rows)
+    non_rest_records = [
+        record
+        for record in records
+        if record["crop_code"] != "rest"
+    ]
 
-    raw_profile = profile_records(rows)
+    return rest_records, non_rest_records
+
+
+def run_structure_profiling(
+    raw_records: list[dict],
+    transformed_records: list[dict],
+) -> None:
+    """執行 Raw 與 Transform 後的基本結構剖析。"""
+
+    raw_profile = profile_records(raw_records)
 
     print_profile(
         "Raw Data Profile",
         raw_profile,
     )
 
-    transformed_rows = transform_agri_prices(rows)
     transformed_profile = profile_records(
-        transformed_rows
+        transformed_records
     )
+
     print_profile(
         "Transformed Data Profile",
         transformed_profile,
     )
 
+
+def run_relationship_profiling(
+    records: list[dict],
+) -> None:
+    """執行欄位與複合欄位關係剖析。"""
+
     category_crop_relationship = (
         profile_field_relationship(
-            transformed_rows,
+            records,
             "category_code",
             "crop_name",
         )
@@ -57,7 +79,7 @@ def main() -> None:
 
     market_relationship = (
         profile_field_relationship(
-            transformed_rows,
+            records,
             "market_code",
             "market_name",
         )
@@ -65,7 +87,7 @@ def main() -> None:
 
     crop_relationship = (
         profile_field_relationship(
-            transformed_rows,
+            records,
             "crop_code",
             "crop_name",
         )
@@ -92,44 +114,9 @@ def main() -> None:
         show_right_conflicts=True,
     )
 
-    duplicate_profile = profile_duplicate_keys(
-        transformed_rows,
-        (
-            "trade_date",
-            "category_code",
-            "crop_code",
-            "market_code",
-        ),
-    )
-
-    print_duplicate_profile(
-        "Candidate Business Key Duplicate Profile",
-        duplicate_profile,
-    )
-
-    duplicate_groups = find_duplicate_record_groups(
-        transformed_rows,
-        (
-            "trade_date",
-            "category_code",
-            "crop_code",
-            "market_code",
-        ),
-    )
-
-    print("\n=== Duplicate Record Details ===")
-
-    for key, records in list(
-        duplicate_groups.items()
-    )[:5]:
-        print(f"\nKey: {key}")
-
-        for record in records:
-            print(record)
-
     market_category_relationship = (
         profile_composite_relationship(
-            transformed_rows,
+            records,
             (
                 "category_code",
                 "market_code",
@@ -137,6 +124,7 @@ def main() -> None:
             "market_name",
         )
     )
+
     print(
         "\n=== Category + Market Code / Market Name ==="
     )
@@ -144,7 +132,7 @@ def main() -> None:
 
     daily_market_relationship = (
         profile_composite_relationship(
-            transformed_rows,
+            records,
             (
                 "trade_date",
                 "category_code",
@@ -168,13 +156,15 @@ def main() -> None:
 
         matching_records = [
             record
-            for record in transformed_rows
+            for record in records
             if record["trade_date"] == trade_date
             and record["category_code"] == category_code
             and record["market_code"] == market_code
         ]
 
-        for record in matching_records:
+        print(f"Matching rows: {len(matching_records)}")
+
+        for record in matching_records[:5]:
             print(
                 {
                     "crop_code": record["crop_code"],
@@ -183,89 +173,187 @@ def main() -> None:
                 }
             )
 
-        rest_records = [
-            record
-            for record in transformed_rows
-            if record["crop_code"] == "rest"
-        ]
+def run_rest_record_profiling(
+    rest_records: list[dict],
+) -> None:
+    """分析休市紀錄的基本特性。"""
 
-        print("\n=== Rest Record Profile ===")
-        print(f"Rows: {len(rest_records)}")
+    print("\n=== Rest Record Profile ===")
+    print(f"Rows: {len(rest_records)}")
 
-        print(
-            "Category codes:",
-            sorted(
-                {
-                    record["category_code"]
-                    for record in rest_records
-                },
-                key=lambda value: str(value),
-            ),
-        )
-
-        print(
-            "Crop names:",
+    print(
+        "Category codes:",
+        sorted(
             {
-                record["crop_name"]
+                record["category_code"]
                 for record in rest_records
             },
-        )
+            key=lambda value: str(value),
+        ),
+    )
 
-        print(
-            "Market names:",
-            sorted(
-                {
-                    record["market_name"]
-                    for record in rest_records
-                }
-            ),
-        )
-
-        all_zero = all(
-            record["upper_price"] == 0.0
-            and record["middle_price"] == 0.0
-            and record["lower_price"] == 0.0
-            and record["avg_price"] == 0.0
-            and record["volume"] == 0.0
+    print(
+        "Crop names:",
+        {
+            record["crop_name"]
             for record in rest_records
-        )
+        },
+    )
 
-        print(f"All numeric fields zero: {all_zero}")
+    print(
+        "Market names:",
+        sorted(
+            {
+                record["market_name"]
+                for record in rest_records
+            }
+        ),
+    )
+
+    all_zero = all(
+        record["upper_price"] == 0.0
+        and record["middle_price"] == 0.0
+        and record["lower_price"] == 0.0
+        and record["avg_price"] == 0.0
+        and record["volume"] == 0.0
+        for record in rest_records
+    )
+
+    print(f"All numeric fields zero: {all_zero}")
 
 
-        non_rest_records = [
-            record
-            for record in transformed_rows
-            if record["crop_code"] != "rest"
-        ]
+def run_duplicate_profiling(
+    records: list[dict],
+    non_rest_records: list[dict],
+    rest_records: list[dict],
+) -> None:
+    """執行候選 Business Key 與重複資料剖析。"""
 
-        non_rest_duplicate_profile = profile_duplicate_keys(
-            non_rest_records,
-            (
-                "trade_date",
-                "crop_code",
-                "market_code",
-            ),
-        )
+    duplicate_profile = profile_duplicate_keys(
+        records,
+        (
+            "trade_date",
+            "category_code",
+            "crop_code",
+            "market_code",
+        ),
+    )
 
-        print_duplicate_profile(
-            "Non-Rest Business Key Duplicate Profile",
-            non_rest_duplicate_profile,
-        )
+    print_duplicate_profile(
+        "Candidate Business Key Duplicate Profile",
+        duplicate_profile,
+    )
 
-        rest_duplicate_profile = profile_duplicate_keys(
-            rest_records,
-            (
-                "trade_date",
-                "category_code",
-                "market_code",
-            ),
-        )
+    duplicate_groups = find_duplicate_record_groups(
+        records,
+        (
+            "trade_date",
+            "category_code",
+            "crop_code",
+            "market_code",
+        ),
+    )
 
-        print_duplicate_profile(
-            "Rest Record Key Duplicate Profile",
-            rest_duplicate_profile,
-        )
+    print("\n=== Duplicate Record Details ===")
+
+    for key, duplicate_records in list(
+        duplicate_groups.items()
+    )[:5]:
+        print(f"\nKey: {key}")
+
+        for record in duplicate_records:
+            print(record)
+
+    non_rest_duplicate_profile = profile_duplicate_keys(
+        non_rest_records,
+        (
+            "trade_date",
+            "crop_code",
+            "market_code",
+        ),
+    )
+
+    print_duplicate_profile(
+        "Non-Rest Business Key Duplicate Profile",
+        non_rest_duplicate_profile,
+    )
+
+    rest_duplicate_profile = profile_duplicate_keys(
+        rest_records,
+        (
+            "trade_date",
+            "category_code",
+            "market_code",
+        ),
+    )
+
+    print_duplicate_profile(
+        "Rest Record Key Duplicate Profile",
+        rest_duplicate_profile,
+    )
+
+
+def run_numeric_profiling(
+    non_rest_records: list[dict],
+) -> None:
+    """分析一般交易紀錄的數值分布。"""
+
+    numeric_profile = profile_numeric_fields(
+        non_rest_records,
+        (
+            "upper_price",
+            "middle_price",
+            "lower_price",
+            "avg_price",
+            "volume",
+        ),
+    )
+
+    print_numeric_distribution_profile(
+        "Non-Rest Numeric Distribution Profile",
+        numeric_profile,
+    )
+
+def main() -> None:
+    start_date = date(2026, 8, 1)
+    end_date = date(2026, 8, 7)
+
+    rows = fetch_all_pages(
+        start_date=start_date,
+        end_date=end_date,
+        page_size=1000,
+    )
+
+    validate_raw_records(rows)
+
+    transformed_rows = transform_agri_prices(rows)
+
+    rest_records, non_rest_records = (
+        split_rest_records(transformed_rows)
+    )
+
+    run_structure_profiling(
+        rows,
+        transformed_rows,
+    )
+
+    run_relationship_profiling(
+        transformed_rows,
+    )
+
+    run_duplicate_profiling(
+        transformed_rows,
+        non_rest_records,
+        rest_records,
+    )
+
+    run_rest_record_profiling(
+        rest_records,
+    )
+
+    run_numeric_profiling(
+        non_rest_records,
+    )
 
 
 if __name__ == "__main__":
