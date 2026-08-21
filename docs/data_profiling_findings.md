@@ -463,3 +463,26 @@ Numeric Extreme Value Profiling
 ```
 
 在上述 Profiling 完成以前，不因目前觀察到的 `0` 或極端值而新增任意 Data Quality 上限或 `> 0` 規則。
+
+### Zero Pattern
+
+針對 2026-08-01 至 2026-08-07 的 17,891 筆 Non-Rest 資料，
+分析 `upper_price`、`middle_price`、`lower_price`、`avg_price`
+與 `volume` 的 0 值共同出現模式。
+
+結果：
+
+| Zero Pattern | Rows | Rate |
+|---|---:|---:|
+| 無任何 0 值 | 17,837 | 99.70% |
+| 四種價格與交易量皆為 0 | 46 | 0.26% |
+| 僅 lower_price = 0 | 6 | 0.03% |
+| 四種價格皆為 0，但 volume 非 0 | 2 | 0.01% |
+
+發現：
+
+- 17,837 筆（99.70%）Non-Rest 資料的五個數值欄位皆非 0。
+- 46 筆資料的四種價格與交易量同時為 0。
+- 6 筆資料只有 `lower_price` 為 0。
+- 2 筆資料的四種價格皆為 0，但仍有非 0 的交易量。
+- 目前尚無足夠依據將上述 0 值模式判定為資料錯誤，因此先保留為 Data Profiling 發現，不加入 Data Quality failure rule。

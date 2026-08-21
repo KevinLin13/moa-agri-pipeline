@@ -8,12 +8,14 @@ from moa_agri_pipeline.profiling.records import (
     profile_field_relationship,
     profile_numeric_fields,
     profile_records,
+    profile_zero_patterns,
 )
 from moa_agri_pipeline.profiling.report import (
     print_duplicate_profile,
     print_numeric_distribution_profile,
     print_profile,
     print_relationship_profile,
+    print_zero_pattern_profile,
 )
 from moa_agri_pipeline.quality.raw import validate_raw_records
 from moa_agri_pipeline.transform.agri_prices import (
@@ -298,20 +300,32 @@ def run_numeric_profiling(
 ) -> None:
     """分析一般交易紀錄的數值分布。"""
 
+    numeric_fields = (
+        "upper_price",
+        "middle_price",
+        "lower_price",
+        "avg_price",
+        "volume",
+    )
+
     numeric_profile = profile_numeric_fields(
         non_rest_records,
-        (
-            "upper_price",
-            "middle_price",
-            "lower_price",
-            "avg_price",
-            "volume",
-        ),
+        numeric_fields,
     )
 
     print_numeric_distribution_profile(
         "Non-Rest Numeric Distribution Profile",
         numeric_profile,
+    )
+
+    zero_pattern_profile = profile_zero_patterns(
+        non_rest_records,
+        numeric_fields,
+    )
+
+    print_zero_pattern_profile(
+        "Non-Rest Zero Pattern Profile",
+        zero_pattern_profile,
     )
 
 def main() -> None:

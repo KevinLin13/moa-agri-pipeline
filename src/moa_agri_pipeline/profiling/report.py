@@ -271,3 +271,47 @@ def print_numeric_distribution_profile(
             print(
                 f"  {statistic}: {value_text}"
             )
+
+def print_zero_pattern_profile(
+    title: str,
+    profile: dict[str, Any],
+) -> None:
+    """顯示數值欄位的 0 值共同出現模式。"""
+
+    print(f"\n=== {title} ===")
+    print(f"Rows: {profile['row_count']}")
+    print(
+        "Distinct zero patterns: "
+        f"{profile['pattern_count']}"
+    )
+    print(
+        "Rows with no zero: "
+        f"{profile['no_zero_count']}"
+    )
+    print(
+        "Rows with all fields zero: "
+        f"{profile['all_zero_count']}"
+    )
+
+    print("\nZero patterns:")
+
+    for item in profile["patterns"]:
+        zero_fields = item["zero_fields"]
+
+        if not zero_fields:
+            zero_text = "(no zero fields)"
+        else:
+            zero_text = " + ".join(zero_fields)
+
+        rate = item["rate"]
+
+        if rate is None:
+            rate_text = "-"
+        else:
+            rate_text = f"{rate:.2%}"
+
+        print(
+            f"  {zero_text}: "
+            f"{item['count']} "
+            f"({rate_text})"
+        )

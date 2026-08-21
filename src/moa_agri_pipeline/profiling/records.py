@@ -366,3 +366,64 @@ def profile_numeric_fields(
         "row_count": len(records),
         "fields": field_profiles,
     }
+
+def profile_zero_patterns(
+    records: list[dict[str, Any]],
+    fields: tuple[str, ...],
+) -> dict[str, Any]:
+    """分析多個數值欄位的 0 值共同出現模式。"""
+
+    pattern_counts = Counter(
+        tuple(
+            record.get(field) == 0
+            for field in fields
+        )
+        for record in records
+    )
+
+    patterns = []
+
+    for pattern, count in pattern_counts.most_common():
+        zero_fields = [
+            field
+            for field, is_zero in zip(fields, pattern)
+            if is_zero
+        ]
+
+        patterns.append(
+            {
+                "pattern": pattern,
+                "zero_fields": tuple(zero_fields),
+                "count": count,
+                "rate": (
+                    count / len(records)
+                    if records
+                    else None
+                ),
+            }
+        )
+
+    all_zero_pattern = tuple(
+        True
+        for _ in fields
+    )
+
+    no_zero_pattern = tuple(
+        False
+        for _ in fields
+    )
+
+    return {
+        "row_count": len(records),
+        "fields": fields,
+        "pattern_count": len(pattern_counts),
+        "all_zero_count": pattern_counts.get(
+            all_zero_pattern,
+            0,
+        ),
+        "no_zero_count": pattern_counts.get(
+            no_zero_pattern,
+            0,
+        ),
+        "patterns": patterns,
+    }

@@ -8,6 +8,7 @@ from moa_agri_pipeline.profiling.records import (
     profile_duplicate_keys,
     profile_field_relationship,
     profile_numeric_fields,
+    profile_zero_patterns,
 )
 
 
@@ -206,3 +207,52 @@ def test_profile_numeric_fields_separates_invalid_numeric_values():
     assert profile["finite_count"] == 1
     assert profile["non_numeric_count"] == 1
     assert profile["non_finite_count"] == 1
+
+
+def test_profile_zero_patterns_detects_shared_zero_patterns():
+    records = [
+        {
+            "upper_price": 0.0,
+            "middle_price": 0.0,
+            "lower_price": 0.0,
+            "avg_price": 0.0,
+            "volume": 0.0,
+        },
+        {
+            "upper_price": 0.0,
+            "middle_price": 0.0,
+            "lower_price": 0.0,
+            "avg_price": 0.0,
+            "volume": 100.0,
+        },
+        {
+            "upper_price": 10.0,
+            "middle_price": 8.0,
+            "lower_price": 0.0,
+            "avg_price": 8.0,
+            "volume": 50.0,
+        },
+        {
+            "upper_price": 10.0,
+            "middle_price": 8.0,
+            "lower_price": 5.0,
+            "avg_price": 8.0,
+            "volume": 50.0,
+        },
+    ]
+
+    profile = profile_zero_patterns(
+        records,
+        (
+            "upper_price",
+            "middle_price",
+            "lower_price",
+            "avg_price",
+            "volume",
+        ),
+    )
+
+    assert profile["row_count"] == 4
+    assert profile["pattern_count"] == 4
+    assert profile["all_zero_count"] == 1
+    assert profile["no_zero_count"] == 1
