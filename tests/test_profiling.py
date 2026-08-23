@@ -9,6 +9,8 @@ from moa_agri_pipeline.profiling.records import (
     profile_field_relationship,
     profile_numeric_fields,
     profile_zero_patterns,
+    find_zero_pattern_records,
+    profile_record_counts,
 )
 
 
@@ -256,3 +258,34 @@ def test_profile_zero_patterns_detects_shared_zero_patterns():
     assert profile["pattern_count"] == 4
     assert profile["all_zero_count"] == 1
     assert profile["no_zero_count"] == 1
+
+def test_find_zero_pattern_records():
+    records = [
+        {
+            "upper_price": 10.0,
+            "middle_price": 8.0,
+            "lower_price": 0.0,
+            "avg_price": 7.0,
+            "volume": 100.0,
+        },
+        {
+            "upper_price": 0.0,
+            "middle_price": 0.0,
+            "lower_price": 0.0,
+            "avg_price": 0.0,
+            "volume": 0.0,
+        },
+    ]
+
+    result = find_zero_pattern_records(
+        records,
+        zero_fields=("lower_price",),
+        nonzero_fields=(
+            "upper_price",
+            "middle_price",
+            "avg_price",
+            "volume",
+        ),
+    )
+
+    assert result == [records[0]]

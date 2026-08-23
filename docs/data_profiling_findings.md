@@ -245,7 +245,7 @@ market_code → market_name
 
 ### 6.1 Data Type / Finite Value Check
 
-五個數值欄位：
+五個數值欄位：  
 
 ```text
 upper_price
@@ -373,9 +373,42 @@ numeric value >= 0
 numeric value > 0
 ```
 
-下一階段需進一步分析 Non-Rest records 的 Zero Pattern。
+Zero Pattern Profiling 已完成。
+
+目前觀察到的 0 值具有多種模式，且部分模式集中於特定 category、
+market 或 crop；目前沒有足夠依據將 0 判定為來源資料錯誤。
+
+因此 Data Quality 仍維持：
+
+numeric value >= 0
+
+不新增 numeric value > 0 規則。
 
 ---
+
+### Zero Pattern
+
+針對 2026-08-01 至 2026-08-07 的 17,891 筆 Non-Rest 資料，
+分析 `upper_price`、`middle_price`、`lower_price`、`avg_price`
+與 `volume` 的 0 值共同出現模式。
+
+結果：
+
+| Zero Pattern | Rows | Rate |
+|---|---:|---:|
+| 無任何 0 值 | 17,837 | 99.70% |
+| 四種價格與交易量皆為 0 | 46 | 0.26% |
+| 僅 lower_price = 0 | 6 | 0.03% |
+| 四種價格皆為 0，但 volume 非 0 | 2 | 0.01% |
+
+發現：
+
+- 17,837 筆（99.70%）Non-Rest 資料的五個數值欄位皆非 0。
+- 46 筆資料的四種價格與交易量同時為 0。
+- 6 筆資料只有 `lower_price` 為 0。
+- 2 筆資料的四種價格皆為 0，但仍有非 0 的交易量。
+- 目前尚無足夠依據將上述 0 值模式判定為資料錯誤，因此先保留為 Data Profiling 發現，不加入 Data Quality failure rule。
+
 
 ### Observation: Price Distribution
 
@@ -432,57 +465,56 @@ market_name
 
 ---
 
-## 8. Open Questions
+## 8. Resolved and Open Questions
 
-目前尚待進一步 Profiling 的問題：
+### Resolved
 
-1. Non-Rest records 中的零值是哪些欄位組合？
-2. 是否存在「只有 lower_price = 0」但其他價格正常的紀錄？
-3. 是否存在 `volume = 0` 但價格大於 0 的紀錄？
-4. Non-Rest 中是否仍存在「所有五個數值欄位皆為 0」的特殊紀錄？
-5. 高價格紀錄集中在哪些 category / crop / market？
-6. `volume` 的極端值是否為合理的大型交易？
-7. Candidate Business Key 在更長日期區間是否仍保持唯一？
+1. Non-Rest records 的主要 Zero Pattern 已完成辨識。
+2. 發現 6 筆僅 `lower_price = 0` 的紀錄。
+3. 目前未觀察到獨立的 `volume = 0` 且價格大於 0 pattern。
+4. 發現 46 筆五個數值欄位皆為 0 的 Non-Rest records。
+
+### Deferred Questions
+
+1. 高價格紀錄集中在哪些 category / crop / market？
+2. `volume` 極端值是否具有合理的交易背景？
+3. Candidate Business Key 在更長日期區間是否仍保持唯一？
 
 ---
 
 ## 9. Planned Profiling Work
 
-接續 Profiling 順序：
+## 9. Profiling Conclusion
 
-```text
-Non-Rest Zero Pattern Profiling
+本階段已完成目前建立 Data Engineering Pipeline 所需要的主要 Data Profiling：
+
+- 來源資料結構與 NULL pattern。
+- Rest / Non-Rest 特殊紀錄。
+- Candidate Business Key。
+- Market Code / Market Name relationship。
+- Non-Rest numeric distribution。
+- Zero Pattern。
+
+Profiling 結果已足以支援下一階段重新整理 Data Quality Rules。
+
+目前不繼續深入分析高價格、極端交易量或特定市場／作物的商業成因。
+這些問題若未來會影響 Schema、Quality Rule、Storage 或 Monitoring，
+再進一步分析。
+
+目前確認：
+
+- `category_code` 與 `crop_name` 可能為 nullable。
+- Rest 與 Non-Rest records 需要不同候選識別鍵。
+- `market_code → market_name` 不能假設為固定一對一。
+- Non-Rest 數值欄位確實可能為 `0`。
+- `0` 目前不足以判定為 invalid data。
+- 數值欄位目前仍採用 `>= 0` 的 Data Quality 規則。
+
+下一階段：
+
+Data Profiling
         ↓
-Zero Record Details
+Finalize Data Quality Rules
         ↓
-Numeric Extreme Value Profiling
-        ↓
-依 category / crop / market 理解極端值
-        ↓
-重新評估 Data Quality Rules
-```
+Load
 
-在上述 Profiling 完成以前，不因目前觀察到的 `0` 或極端值而新增任意 Data Quality 上限或 `> 0` 規則。
-
-### Zero Pattern
-
-針對 2026-08-01 至 2026-08-07 的 17,891 筆 Non-Rest 資料，
-分析 `upper_price`、`middle_price`、`lower_price`、`avg_price`
-與 `volume` 的 0 值共同出現模式。
-
-結果：
-
-| Zero Pattern | Rows | Rate |
-|---|---:|---:|
-| 無任何 0 值 | 17,837 | 99.70% |
-| 四種價格與交易量皆為 0 | 46 | 0.26% |
-| 僅 lower_price = 0 | 6 | 0.03% |
-| 四種價格皆為 0，但 volume 非 0 | 2 | 0.01% |
-
-發現：
-
-- 17,837 筆（99.70%）Non-Rest 資料的五個數值欄位皆非 0。
-- 46 筆資料的四種價格與交易量同時為 0。
-- 6 筆資料只有 `lower_price` 為 0。
-- 2 筆資料的四種價格皆為 0，但仍有非 0 的交易量。
-- 目前尚無足夠依據將上述 0 值模式判定為資料錯誤，因此先保留為 Data Profiling 發現，不加入 Data Quality failure rule。

@@ -427,3 +427,37 @@ def profile_zero_patterns(
         ),
         "patterns": patterns,
     }
+
+def find_zero_pattern_records(
+    records: list[dict[str, Any]],
+    *,
+    zero_fields: tuple[str, ...],
+    nonzero_fields: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """找出符合指定 0 / 非 0 欄位模式的資料。"""
+
+    return [
+        record
+        for record in records
+        if all(
+            record.get(field) == 0
+            for field in zero_fields
+        )
+        and all(
+            record.get(field) != 0
+            for field in nonzero_fields
+        )
+    ]
+
+def profile_record_counts(
+    records: list[dict[str, Any]],
+    field: str,
+) -> dict[Any, int]:
+    """統計指定欄位各值的資料筆數。"""
+
+    return dict(
+        Counter(
+            record.get(field)
+            for record in records
+        )
+    )

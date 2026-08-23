@@ -2,8 +2,9 @@ from datetime import date
 
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.profiling.records import (
-    profile_composite_relationship,
     find_duplicate_record_groups,
+    find_zero_pattern_records,
+    profile_composite_relationship,
     profile_duplicate_keys,
     profile_field_relationship,
     profile_numeric_fields,
@@ -328,6 +329,118 @@ def run_numeric_profiling(
         zero_pattern_profile,
     )
 
+def run_zero_pattern_detail_profiling(
+
+    non_rest_records: list[dict],
+
+) -> None:
+
+    """顯示一般交易紀錄中特殊 0 值模式的實際資料。"""
+
+
+
+    price_fields = (
+
+        "upper_price",
+
+        "middle_price",
+
+        "lower_price",
+
+        "avg_price",
+
+    )
+
+
+
+    numeric_fields = (
+
+        *price_fields,
+
+        "volume",
+
+    )
+
+
+
+    all_numeric_zero_records = find_zero_pattern_records(
+
+        non_rest_records,
+
+        zero_fields=numeric_fields,
+
+    )
+
+
+
+    lower_price_only_zero_records = find_zero_pattern_records(
+
+        non_rest_records,
+
+        zero_fields=("lower_price",),
+
+        nonzero_fields=(
+
+            "upper_price",
+
+            "middle_price",
+
+            "avg_price",
+
+            "volume",
+
+        ),
+
+    )
+
+
+
+    zero_prices_with_volume_records = find_zero_pattern_records(
+
+        non_rest_records,
+
+        zero_fields=price_fields,
+
+        nonzero_fields=("volume",),
+
+    )
+
+
+
+    print("\n=== All Numeric Fields Zero Details ===")
+
+    print(f"Rows: {len(all_numeric_zero_records)}")
+
+
+
+    for record in all_numeric_zero_records:
+
+        print(record)
+
+
+
+    print("\n=== Lower Price Only Zero Details ===")
+
+    print(f"Rows: {len(lower_price_only_zero_records)}")
+
+
+
+    for record in lower_price_only_zero_records:
+
+        print(record)
+
+
+
+    print("\n=== All Prices Zero With Volume Details ===")
+
+    print(f"Rows: {len(zero_prices_with_volume_records)}")
+
+
+
+    for record in zero_prices_with_volume_records:
+
+        print(record)
+
 def main() -> None:
     start_date = date(2026, 8, 1)
     end_date = date(2026, 8, 7)
@@ -366,6 +479,10 @@ def main() -> None:
     )
 
     run_numeric_profiling(
+        non_rest_records,
+    )
+
+    run_zero_pattern_detail_profiling(
         non_rest_records,
     )
 
