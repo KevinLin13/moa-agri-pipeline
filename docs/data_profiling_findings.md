@@ -104,7 +104,7 @@ Structure Profiling 顯示五個數值欄位的最小值皆為 `0.0`。
 
 另外，`作物名稱` 與 `種類代碼` 各有 86 筆 Null，但僅從欄位摘要無法確認兩者是否完全發生在同一批 records。
 
-此部分需由後續 Relationship Profiling 再確認。
+後續 Relationship Profiling 已確認這 86 筆為 `category_code` 與 `crop_name` 同時為 Null；詳細結果記錄於第 6 節。
 
 ---
 
@@ -343,7 +343,7 @@ N06
 
 ### 5.2 Split Result
 
-確認 Rest representation 後，將全部 records 分為：
+確認 Rest representation 後，才將全部 records 分為：
 
 ```text
 Total rows:     17,946
@@ -384,725 +384,348 @@ all numeric fields = 0
 
 ## 6. Identifier Relationship Profiling
 
-### 6.1 Methodology Correction
 
-先前曾直接使用全部 Transform 後 records 進行：
+### 6.1 Rest Market Code / Market Name Relationship
 
-```text
-market_code ↔ market_name
-crop_code ↔ crop_name
-```
-
-Relationship Profiling。
-
-後續確認 Rest records 與一般交易 records 應分開處理後，發現這個方法存在 scope 問題。
-
-例如目前 All-Zero Inspection 已直接觀察到：
+分析範圍：
 
 ```text
-Non-Rest:
-market_code = 400
-market_name = 台中市場
-
-Rest:
-market_code = 400
-market_name = 台中市
+55 Rest records
 ```
 
-以及：
+NULL Pattern：
 
 ```text
-Non-Rest:
-market_code = 514
-market_name = 彰化市場
-
-Rest:
-market_code = 514
-market_name = 溪湖鎮
+market_code NULL=False, market_name NULL=False: 55
 ```
 
-因此，如果把 Rest 與 Non-Rest 混在一起分析：
+Relationship 結果：
 
 ```text
 market_code → market_name
+multiple mapping: 0
+
+market_name → market_code
+multiple mapping: 0
 ```
 
-會產生看似一對多的 Relationship。
+### Observation
 
-這不能直接用來判斷 Non-Rest 的 `market_code` 是否適合作為市場 identifier。
+在目前 55 筆 Rest records 中：
 
-### Decision
+- `market_code` 沒有 Null。
+- `market_name` 沒有 Null。
+- 一個 `market_code` 只對應一個 `market_name`。
+- 一個 `market_name` 也只對應一個 `market_code`。
 
-先前基於全部 Transform records 得到的 Market Relationship conflict：
+### Current Decision
 
-```text
-400 → 台中市 / 台中市場
-514 → 溪湖鎮 / 彰化市場
-800 → 高雄市 / 高雄市場
-```
+在目前七天資料中，Rest records 的 Market Relationship 可視為穩定的一對一。
 
-暫不作為 Non-Rest Identifier Relationship 的最終 finding。
-
-Relationship Profiling 應重新使用分流後資料執行。
+但此結果仍只代表目前 Profiling 期間，不直接宣告所有歷史與未來 Rest records 永遠維持相同關係。
 
 ---
 
-### 6.2 Planned Non-Rest Relationship Profiling
+### 6.2 Non-Rest Category / Crop Name NULL Relationship
 
-下一步針對：
+分析範圍：
 
 ```text
 17,891 Non-Rest records
 ```
 
-重新確認：
-
-#### Category / Crop Name Null Pattern
+Relationship 結果：
 
 ```text
-category_code ↔ crop_name
+category_code NULL=False, crop_name NULL=False: 17,805
+category_code NULL=True,  crop_name NULL=True:      86
 ```
 
-目的：
-
-- 確認 `category_code` 與 `crop_name` 的 Null 是否共同發生。
-- 釐清 Structure Profiling 中兩欄各 86 筆 Null 的實際關係。
-
-#### Crop Identifier Relationship
+沒有觀察到：
 
 ```text
-crop_code ↔ crop_name
+category_code 有值、crop_name 為 NULL
 ```
 
-目的：
-
-- 檢查一個 `crop_code` 是否對應多個 `crop_name`。
-- 檢查一個 `crop_name` 是否可能對應多個 `crop_code`。
-- 評估 `crop_code` 是否比 `crop_name` 更適合作為 identifier。
-
-#### Market Identifier Relationship
+或：
 
 ```text
-market_code ↔ market_name
+category_code 為 NULL、crop_name 有值
 ```
 
-目的：
-
-- 確認排除 Rest 後，一個 `market_code` 是否仍對應多個 `market_name`。
-- 評估 `market_code` 是否適合作為 Non-Rest Candidate Business Key 的市場識別欄位。
-
----
-
-### 6.3 Planned Rest Relationship Profiling
-
-Rest records 另外分析：
-
-```text
-market_code ↔ market_name
-```
-
-不與 Non-Rest records 混合。
-
-目前 Rest 的：
-
-```text
-crop_code = "rest"
-crop_name = "休市"
-```
-
-已具有固定特殊語意，因此目前沒有必要把 Rest 的 `crop_code ↔ crop_name` 當作一般作物 identifier relationship 重新評估。
-
-### Current Status
-
-Identifier Relationship 尚待依新的 Rest / Non-Rest scope 重新執行。
-
-因此目前不先宣告：
-
-```text
-Non-Rest market_code → market_name
-```
-
-一定為一對一。
-
-該結論必須由重新執行後的資料結果決定。
-
----
-
-## 7. Candidate Business Keys
-
-目前已曾針對分流後的 Rest / Non-Rest records 執行 Duplicate / Uniqueness Profiling。
-
-這些 uniqueness 結果仍可保留，但在 Identifier Relationship 重新確認完成前，目前將 Candidate Business Key 視為 **provisional（暫定）**。
-
----
-
-### 7.1 Non-Rest Records
-
-目前候選組合：
-
-```text
-trade_date + crop_code + market_code
-```
-
-Profiling 結果：
-
-```text
-Rows:                  17,891
-Unique keys:           17,891
-Duplicate key groups:       0
-Rows in duplicate groups:   0
-Excess duplicate rows:      0
-```
+的組合。
 
 ### Observation
 
-在 2026-08-01 至 2026-08-07：
+目前 86 筆 Null records 中：
 
 ```text
-trade_date + crop_code + market_code
+category_code = NULL
+crop_name     = NULL
 ```
 
-具有完整 uniqueness，可唯一識別目前全部 17,891 筆 Non-Rest records。
+是共同發生的。
+
+進一步列出這 86 筆 records 後，確認：
+
+- `crop_code` 仍有值。
+- `market_code` 仍有值。
+- `market_name` 仍有值。
+- 相同的 Null pattern 會跨多個日期、crop_code 與市場重複出現。
+- 例如 `FE800`、`FH010`、`FH011` 等 crop code 在不同日期與市場反覆出現相同的 Null pattern。
+
+因此這不是單一 record 的偶發缺值，而是目前來源資料中可重複觀察到的資料表示方式。
+
+官方 API 文件定義了 `種類代碼` 與 `作物名稱` 欄位，但沒有說明這兩個欄位一定 non-null，也沒有說明這類 Null record 的產生原因。
 
 ### Current Decision
 
-目前保留為：
+目前不自行推導或填補：
 
 ```text
-Provisional Candidate Business Key
+category_code
+crop_name
 ```
 
-但在最終確認前，仍需完成前一節：
+因此 Transform 仍保留來源 `None`。
+
+目前 Schema / Data Quality 設計應允許：
 
 ```text
-crop_code ↔ crop_name
-market_code ↔ market_name
+category_code: str | None
+crop_name:     str | None
 ```
 
-的 Non-Rest Relationship Profiling。
+但：
 
-另外，未來仍需要使用更長日期區間持續驗證 uniqueness。
+```text
+crop_code
+market_code
+market_name
+```
+
+在目前資料中仍應視為必要識別資訊。
+
+另外，目前「`category_code` 與 `crop_name` 同時 Null」只能視為目前觀察到的 pattern，不先建立 hard failure rule，避免把七天資料的現象誤當成永久資料契約。
 
 ---
 
-### 7.2 Rest Records
+### 6.3 Non-Rest Crop Code / Crop Name Relationship
 
-目前候選組合：
+NULL Pattern：
 
 ```text
-trade_date + category_code + market_code
+crop_code NULL=False, crop_name NULL=False: 17,805
+crop_code NULL=False, crop_name NULL=True:      86
 ```
 
-Profiling 結果：
+Relationship 結果：
 
 ```text
-Rows:                     55
-Unique keys:              55
-Duplicate key groups:      0
-Rows in duplicate groups:  0
-Excess duplicate rows:     0
+crop_code → crop_name
+multiple mapping: 0
 ```
 
-### Observation
+表示在目前有 `crop_name` 的 records 中，沒有觀察到同一個 `crop_code` 對應多個不同 `crop_name`。
 
-在目前七天資料中，此組欄位可唯一識別全部 55 筆 Rest records。
-
-### Current Decision
-
-Rest records 與 Non-Rest records 具有不同資料語意，因此不使用相同 Candidate Business Key。
-
-目前保留：
+反方向：
 
 ```text
-trade_date + category_code + market_code
-```
-
-作為：
-
-```text
-Provisional Rest Record Key
-```
-
----
-
-## 8. Numeric Distribution — Non-Rest Records
-
-確認 Rest representation 並完成分流後，數值分布只針對：
-
-```text
-17,891 Non-Rest records
-```
-
-不包含 55 筆 Rest records。
-
-### 8.1 Data Type / Finite Value Check
-
-五個數值欄位：
-
-```text
-upper_price
-middle_price
-lower_price
-avg_price
-volume
-```
-
-全部 17,891 筆皆為 finite numeric values。
-
-目前沒有觀察到：
-
-```text
-Non-numeric value
-NaN
-Infinity
--Infinity
-```
-
----
-
-### 8.2 Upper Price
-
-```text
-Zero:      48 (0.27%)
-Mean:      96.70
-Std:       90.60
-Min:        0.00
-Q1:        35.00
-Median:    69.80
-Q3:       130.00
-Max:     1050.00
-```
-
----
-
-### 8.3 Middle Price
-
-```text
-Zero:      48 (0.27%)
-Mean:      79.23
-Std:       78.01
-Min:        0.00
-Q1:        26.00
-Median:    52.00
-Q3:       108.00
-Max:     1000.00
-```
-
----
-
-### 8.4 Lower Price
-
-```text
-Zero:      54 (0.30%)
-Mean:      64.16
-Std:       72.15
-Min:        0.00
-Q1:        18.00
-Median:    38.00
-Q3:        87.00
-Max:     1000.00
-```
-
----
-
-### 8.5 Average Price
-
-```text
-Zero:      48 (0.27%)
-Mean:      79.55
-Std:       77.87
-Min:        0.00
-Q1:        26.40
-Median:    52.80
-Q3:       108.50
-Max:     1000.00
-```
-
----
-
-### 8.6 Volume
-
-```text
-Zero:          46 (0.26%)
-Mean:        1905.28
-Std:         6846.21
-Min:            0.00
-Q1:            54.00
-Median:       267.50
-Q3:          1332.00
-Max:       234587.00
-```
-
----
-
-## 9. Zero Pattern — Non-Rest Records
-
-針對 17,891 筆 Non-Rest records，分析：
-
-```text
-upper_price
-middle_price
-lower_price
-avg_price
-volume
-```
-
-五個欄位的 Zero Pattern。
-
-結果：
-
-| Zero Pattern | Rows | Rate |
-|---|---:|---:|
-| 無任何 0 值 | 17,837 | 99.70% |
-| 五個數值欄位皆為 0 | 46 | 0.26% |
-| 僅 `lower_price = 0` | 6 | 0.03% |
-| 四種價格皆為 0，但 `volume > 0` | 2 | 0.01% |
-
-總計：
-
-```text
-17,837 + 46 + 6 + 2 = 17,891
-```
-
----
-
-### 9.1 All Numeric Fields Zero
-
-```text
-Rows: 46
-```
-
-目前七天資料中：
-
-```text
-category_code = N06
-46 / 46
-```
-
-市場分布目前觀察到：
-
-```text
-market_code = 700: 38
-market_code = 514:  3
-market_code = 400:  3
-market_code = 105:  1
-market_code = 800:  1
-```
-
-### Observation
-
-Non-Rest All-Zero pattern 並非隨機平均分布。
-
-目前：
-
-- 全部出現在 N06。
-- 約 82.6% 出現在 market_code=700 / 台南市場。
-
-但因目前只分析七天資料，因此不將此模式寫成 Data Quality hard rule。
-
----
-
-### 9.2 Lower Price Only Zero
-
-```text
-Rows: 6
+crop_name → crop_code
+multiple mapping: 6
 ```
 
 目前觀察到：
 
 ```text
-category_code = N04
-market_code = 900
-market_name = 屏東市
-```
+其他
+→ 91
+→ OX1
 
-作物並不完全相同。
+小白菜-土白菜
+→ LB1
+→ LB12
 
-### Observation
+蘿蔔-矸仔
+→ SA3
+→ SA32
 
-`lower_price = 0` 並不必然代表整筆行情沒有交易或資料失效。
+繡球花-粉
+→ FH464
+→ IH464
 
-因此目前不建立：
+繡球花-白
+→ FH466
+→ IH466
 
-```text
-lower_price > 0
-```
-
-的 hard rule。
-
----
-
-### 9.3 All Prices Zero With Positive Volume
-
-```text
-Rows: 2
-```
-
-目前兩筆皆為：
-
-```text
-category_code = N04
-market_code = 900
-market_name = 屏東市
-crop_code = FL2
-```
-
-且：
-
-```text
-upper_price  = 0
-middle_price = 0
-lower_price  = 0
-avg_price    = 0
-volume       > 0
+繡球花-藍
+→ FH467
+→ IH467
 ```
 
 ### Observation
 
-來源資料確實可能出現：
+`crop_name` 並不是唯一 identifier。
+
+官方代碼表本身即存在不同 code 使用相同或高度相似顯示名稱的情況，例如：
+
+- 不同類別可能使用「其他」作為名稱。
+- `LB1`、`LB11`、`LB12` 在官方代碼表中具有更細的洗／未洗分類，但 API 實際顯示名稱未必保留完整細分類資訊。
+- 本土與進口花卉可能具有不同 code，但顯示為相同花名，例如 `FH464` 與 `IH464`。
+
+因此：
 
 ```text
-prices = 0
-volume > 0
+crop_name
 ```
 
-因此價格為 `0` 不能直接判定為 invalid data。
-
----
-
-### 9.4 Current Zero-Value Decision
-
-目前 Data Profiling 支持：
-
-```text
-numeric value >= 0
-```
-
-而不支持：
-
-```text
-numeric value > 0
-```
-
-因此目前：
-
-- `0` 保留為合法來源值。
-- 不因 `0` 自動刪除 record。
-- 不把 All-Zero 自動視為 Rest。
-- 不把 Non-Rest All-Zero 自動視為 invalid data。
-- 若未來需要，可將特殊 Zero Pattern 作為 warning / monitoring 指標，而非立即 hard fail。
-
----
-
-## 10. Price and Volume Distribution Findings
-
-### 10.1 Price Distribution
-
-四個價格欄位均呈右尾分布特徵。
-
-以 `avg_price` 為例：
-
-```text
-Mean:     79.55
-Median:   52.80
-Q3:      108.50
-Max:    1000.00
-```
-
-平均數高於中位數，且最大值遠高於第三四分位數。
+較適合作為 descriptive label，而不是唯一識別欄位。
 
 ### Current Decision
 
-目前不將高價格直接視為資料錯誤。
+目前資料支持：
 
-不同種類農產品的價格尺度可能具有實質差異，因此目前不設定固定價格上限。
+```text
+crop_code
+```
 
-是否進一步分析高價格紀錄，需以該分析是否會影響：
+比：
 
-- Schema。
-- Data Quality。
-- Storage。
-- Monitoring。
+```text
+crop_name
+```
 
-作為判斷依據。
+更適合作為 Candidate Business Key 的作物識別組成欄位。
+
+這不代表 `crop_code` 單獨就是 Business Key；Business Key uniqueness 仍需由完整欄位組合另外驗證。
 
 ---
 
-### 10.2 Volume Distribution
+### 6.4 Non-Rest Market Code / Market Name Relationship
 
-`volume` 呈高度右偏：
+NULL Pattern：
 
 ```text
-Mean:       1905.28
-Median:      267.50
-Q3:         1332.00
-Max:      234587.00
+market_code NULL=False, market_name NULL=False: 17,891
 ```
 
-少量大型交易量明顯拉高平均數與標準差。
+因此目前沒有 Market Code / Market Name 的 Null 問題。
+
+Relationship 結果：
+
+```text
+market_code → market_name
+multiple mapping: 3
+```
+
+目前觀察到：
+
+```text
+400
+→ 台中市
+→ 台中市場
+
+514
+→ 彰化市場
+→ 溪湖鎮
+
+800
+→ 高雄市
+→ 高雄市場
+```
+
+反方向：
+
+```text
+market_name → market_code
+multiple mapping: 0
+```
+
+### Observation
+
+排除 Rest records 後：
+
+```text
+market_code → market_name
+```
+
+仍然不是全域一對一。
+
+官方市場代碼表將市場依蔬菜、水果、花卉分開列示，而且相同 `market_code` 可能在不同 category context 中重複出現。
+
+例如：
+
+```text
+514
+蔬菜 → 溪湖
+花卉 → 彰化
+```
+
+另外，這次 86 筆 `category_code = NULL` records 中也觀察到：
+
+```text
+400 → 台中市
+514 → 溪湖鎮
+800 → 高雄市
+```
+
+這些 Null-category records 可能參與目前的 Market Name conflict，因此下一步必須把 `category_code` context 納入分析，而不是直接把 `market_code` 當成全域市場 identifier。
 
 ### Current Decision
 
-目前不將：
+目前：
+
+- 不使用 `market_name` 作為 Business Key。
+- 不假設 `market_code` 在所有 category 中具有全域唯一的市場語意。
+- 不自行統一 `台中市 / 台中市場`、`高雄市 / 高雄市場` 等來源名稱。
+- 保留 API 原始提供的 `market_name`。
+- 下一步驗證：
 
 ```text
-234587
+(category_code, market_code) → market_name
 ```
 
-或其他大型交易量直接判定為異常。
+以確認在 `category_code` 有值的 Non-Rest records 中，加入 category context 後 Market Relationship 是否恢復為一對一。
 
-在沒有明確 domain rule 或來源文件依據前，不設定任意交易量上限。
+由於目前有 86 筆 `category_code = NULL`，這批 records 必須維持獨立觀察，不能因 composite relationship 無法建立完整 key 就直接刪除或補值。
 
 ---
 
-## 11. Current Data Engineering Implications
+### 6.5 Current Identifier Relationship Conclusion
 
-目前已確認、可供後續 Pipeline 設計參考的事項：
-
-### Schema / Nullable
-
-- `category_code` 在來源中可能為 `None`。
-- `crop_name` 在來源中可能為 `None`。
-- Transform 應保留來源 Null，不自行推導或填值。
-
-### Rest Handling
-
-- Rest 是來源中的特殊 record type。
-- 目前可由 `crop_code = "rest"` 識別。
-- `crop_name = "休市"` 可作為一致性驗證。
-- Rest 的全部數值為 `0.0`。
-- 但 All-Zero 不能用來判斷 Rest。
-
-### Numeric Quality
-
-目前支持：
+目前可以確認：
 
 ```text
-numeric value >= 0
-```
-
-目前不支持：
-
-```text
-numeric value > 0
-```
-
-### Candidate Keys
-
-目前暫定：
-
-```text
-Non-Rest:
-trade_date + crop_code + market_code
-
-Rest:
-trade_date + category_code + market_code
-```
-
-但 Non-Rest identifier relationship 尚需在正確 scope 下重新驗證。
-
----
-
-## 12. Resolved Questions
-
-目前已回答：
-
-1. 五個數值欄位是否存在 `0`？
-   - 有。
-
-2. 是否存在五個數值欄位全部為 `0` 的 records？
-   - 有，共 101 筆（未分流前）。
-
-3. All-Zero 是否等同 Rest？
-   - 否。
-
-4. 目前如何辨識 Rest？
-   - `crop_code = "rest"`。
-
-5. Rest records 有幾筆？
-   - 55 筆。
-
-6. Non-Rest records 是否也會 All-Zero？
-   - 會，共 46 筆。
-
-7. 目前 Non-Rest All-Zero 是否只出現在 N06？
-   - 在目前七天資料中是，但不能推論所有歷史或未來資料皆如此。
-
-8. `numeric value > 0` 是否適合作為目前 Data Quality Rule？
-   - 不適合。
-
-9. Rest / Non-Rest 後續是否應分開 Profiling？
-   - 是。
-
----
-
-## 13. Pending Validation and Deferred Questions
-
-### 13.1 Next Required Profiling
-
-目前下一個必要步驟是重新執行分流後的 Identifier Relationship Profiling：
-
-```text
-Non-Rest:
-category_code ↔ crop_name
-crop_code ↔ crop_name
-market_code ↔ market_name
-
 Rest:
 market_code ↔ market_name
+→ 目前為一對一
+
+Non-Rest:
+category_code / crop_name
+→ 86 筆共同 NULL
+
+Non-Rest:
+crop_code → crop_name
+→ 目前無一對多
+
+Non-Rest:
+crop_name → crop_code
+→ 6 組一對多
+
+Non-Rest:
+market_code → market_name
+→ 3 組一對多
 ```
 
-完成後應立即更新本文件，再重新確認 Candidate Business Key 的設計依據。
+因此：
 
----
+- `crop_code` 目前比 `crop_name` 更適合作為作物 identifier。
+- `market_name` 不應作為市場 Business Key 欄位。
+- `market_code` 的語意需要搭配 category context 再確認。
+- `category_code` 的 nullable 特性會影響後續 Market Relationship 與資料模型設計。
 
-### 13.2 Deferred Questions
-
-目前暫不繼續深入處理：
-
-1. 高價格紀錄集中在哪些 category / crop / market？
-2. `volume` 極端值的實際商業背景為何？
-3. 為什麼 N06 All-Zero records 高度集中於台南市場？
-4. 為什麼部分 N04 records 會出現價格為 0 但 `volume > 0`？
-
-這些問題目前不影響已知的基本 Schema、Rest split 與零值合法性判斷，因此先保留為 Deferred Questions。
-
-另外：
-
-5. Candidate Business Key 在更長日期區間是否仍保持唯一？
-
-此問題未來在進入正式 Load / Upsert 設計前仍需持續驗證。
-
----
-
-## 14. Next Step
-
-目前 Data Profiling 尚未完全結束。
-
-下一步：
+Identifier Relationship 尚未完全結束；下一個必要驗證是：
 
 ```text
-Structure Profiling
-        ↓
-Initial All-Zero Inspection
-        ↓
-Rest Representation Confirmed
-        ↓
-Rest / Non-Rest Split
-        ↓
-▶ Identifier Relationship Profiling
-        ↓
-Update data_profiling_findings.md
-        ↓
-Reconfirm Candidate Business Keys
-        ↓
-Finalize Data Quality Rules
+(category_code, market_code) → market_name
 ```
-
-在 Identifier Relationship 重新驗證完成前：
-
-- 不使用舊的 mixed Rest / Non-Rest Relationship 結果作為最終結論。
-- 不新增新的 Candidate Key 欄位。
-- 不修改來源名稱。
-- 不因 `0` 刪除資料。
-- 不宣告 Profiling 階段完成。

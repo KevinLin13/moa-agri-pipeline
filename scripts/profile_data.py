@@ -16,6 +16,7 @@ from moa_agri_pipeline.profiling.report import (
     print_numeric_distribution_profile,
     print_profile,
     print_record_table,
+    print_rest_split_summary,
     print_relationship_profile,
     print_zero_pattern_profile,
 )
@@ -74,115 +75,96 @@ def split_rest_records(
 
     return rest_records, non_rest_records
 
-
-def run_relationship_profiling(
-    records: list[dict],
+def run_non_rest_relationship_profiling(
+    non_rest_records: list[dict],
 ) -> None:
-    """執行欄位與複合欄位關係剖析。"""
+    """分析一般交易紀錄中的欄位關係。"""
 
     category_crop_relationship = (
         profile_field_relationship(
-            records,
+            non_rest_records,
             "category_code",
             "crop_name",
         )
     )
-
-    market_relationship = (
-        profile_field_relationship(
-            records,
-            "market_code",
-            "market_name",
-        )
-    )
-
-    crop_relationship = (
-        profile_field_relationship(
-            records,
-            "crop_code",
-            "crop_name",
-        )
-    )
-
     print_relationship_profile(
-        "Category / Crop Name Relationship",
+        "Non-Rest Category / Crop Name Relationship",
         category_crop_relationship,
         show_left_conflicts=False,
         show_right_conflicts=False,
     )
 
-    print_relationship_profile(
-        "Market Code / Name Relationship",
-        market_relationship,
-        show_left_conflicts=True,
-        show_right_conflicts=False,
+    crop_relationship = (
+        profile_field_relationship(
+            non_rest_records,
+            "crop_code",
+            "crop_name",
+        )
     )
-
     print_relationship_profile(
-        "Crop Code / Name Relationship",
+        "Non-Rest Crop Code / Name Relationship",
         crop_relationship,
         show_left_conflicts=True,
         show_right_conflicts=True,
     )
 
-    market_category_relationship = (
-        profile_composite_relationship(
-            records,
-            (
-                "category_code",
-                "market_code",
-            ),
+    market_relationship = (
+        profile_field_relationship(
+            non_rest_records,
+            "market_code",
             "market_name",
         )
     )
-
-    print(
-        "\n=== Category + Market Code / Market Name ==="
+    print_relationship_profile(
+        "Non-Rest Market Code / Name Relationship",
+        market_relationship,
+        show_left_conflicts=True,
+        show_right_conflicts=True,
     )
-    print(market_category_relationship)
 
-    daily_market_relationship = (
-        profile_composite_relationship(
-            records,
-            (
-                "trade_date",
-                "category_code",
-                "market_code",
-            ),
+def run_rest_relationship_profiling(
+    rest_records: list[dict],
+) -> None:
+    """分析休市紀錄中的市場欄位關係。"""
+
+    market_relationship = (
+        profile_field_relationship(
+            rest_records,
+            "market_code",
             "market_name",
         )
     )
-
-    print(
-        "\n=== Date + Category + Market Code / Market Name ==="
+    print_relationship_profile(
+        "Rest Market Code / Name Relationship",
+        market_relationship,
+        show_left_conflicts=True,
+        show_right_conflicts=True,
     )
-    print(daily_market_relationship)
 
-    print("\n=== Market Name Conflict Details ===")
+def run_non_rest_null_record_inspection(
+    non_rest_records: list[dict],
+) -> None:
+    """查看 category_code / crop_name 出現 NULL 的一般交易紀錄。"""
 
-    for conflict_key in daily_market_relationship["conflicts"]:
-        trade_date, category_code, market_code = conflict_key
+    null_records = [
+        record
+        for record in non_rest_records
+        if record["category_code"] is None
+        or record["crop_name"] is None
+    ]
 
-        print(f"\nKey: {conflict_key}")
-
-        matching_records = [
-            record
-            for record in records
-            if record["trade_date"] == trade_date
-            and record["category_code"] == category_code
-            and record["market_code"] == market_code
-        ]
-
-        print(f"Matching rows: {len(matching_records)}")
-
-        for record in matching_records[:5]:
-            print(
-                {
-                    "crop_code": record["crop_code"],
-                    "crop_name": record["crop_name"],
-                    "market_name": record["market_name"],
-                }
-            )
+    print_record_table(
+        "Non-Rest NULL Record Inspection",
+        null_records,
+        fields=(
+            "trade_date",
+            "category_code",
+            "crop_code",
+            "crop_name",
+            "market_code",
+            "market_name",
+        ),
+    )
 
 def run_rest_record_profiling(
     rest_records: list[dict],
@@ -481,6 +463,28 @@ def main() -> None:
         transformed_rows,
     )
 
+    rest_records, non_rest_records = (
+        split_rest_records(
+            transformed_rows
+        )
+    )
+    print_rest_split_summary(
+        total_count=len(transformed_rows),
+        rest_count=len(rest_records),
+        non_rest_count=len(non_rest_records),
+    )
+
+    run_non_rest_relationship_profiling(
+        non_rest_records,
+    )
+
+    run_rest_relationship_profiling(
+        rest_records,
+    )
+
+    run_non_rest_null_record_inspection(
+        non_rest_records
+    )
     # run_relationship_profiling(
     #     transformed_rows,
     # )

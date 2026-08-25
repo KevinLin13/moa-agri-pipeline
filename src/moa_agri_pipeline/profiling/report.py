@@ -375,3 +375,29 @@ def print_record_table(
             + " | ".join(values)
             + " |"
         )
+
+def print_rest_split_summary(
+    total_count: int,
+    rest_count: int,
+    non_rest_count: int,
+) -> None:
+    """顯示 Rest / Non-Rest 分流結果。"""
+
+    print("\n=== Rest / Non-Rest Split Summary ===")
+
+    print(
+        "| Record Type | Rows |"
+    )
+    print(
+        "|---|---:|"
+    )
+
+    print(
+        f"| Total | {total_count} |"
+    )
+    print(
+        f"| Rest | {rest_count} |"
+    )
+    print(
+        f"| Non-Rest | {non_rest_count} |"
+    )
