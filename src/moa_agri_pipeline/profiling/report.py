@@ -315,3 +315,63 @@ def print_zero_pattern_profile(
             f"{item['count']} "
             f"({rate_text})"
         )
+
+def _format_table_value(
+    value: Any,
+) -> str:
+    """將資料值轉成適合表格顯示的文字。"""
+
+    if value is None:
+        return "NULL"
+
+    return (
+        str(value)
+        .replace("|", r"\|")
+        .replace("\n", " ")
+    )
+
+
+def print_record_table(
+    title: str,
+    records: list[dict[str, Any]],
+    *,
+    fields: tuple[str, ...],
+) -> None:
+    """將指定 records 以表格格式顯示。"""
+
+    print(f"\n=== {title} ===")
+    print(f"Rows: {len(records)}")
+
+    if not records:
+        return
+
+    print()
+
+    print(
+        "| "
+        + " | ".join(fields)
+        + " |"
+    )
+
+    print(
+        "|"
+        + "|".join(
+            "---"
+            for _ in fields
+        )
+        + "|"
+    )
+
+    for record in records:
+        values = [
+            _format_table_value(
+                record.get(field)
+            )
+            for field in fields
+        ]
+
+        print(
+            "| "
+            + " | ".join(values)
+            + " |"
+        )

@@ -15,6 +15,7 @@ from moa_agri_pipeline.profiling.report import (
     print_duplicate_profile,
     print_numeric_distribution_profile,
     print_profile,
+    print_record_table,
     print_relationship_profile,
     print_zero_pattern_profile,
 )
@@ -23,6 +24,36 @@ from moa_agri_pipeline.transform.agri_prices import (
     transform_agri_prices,
 )
 
+def run_initial_all_zero_inspection(
+    transformed_records: list[dict],
+) -> None:
+    """查看所有數值欄位皆為 0 的紀錄。"""
+
+    numeric_fields = (
+        "upper_price",
+        "middle_price",
+        "lower_price",
+        "avg_price",
+        "volume",
+    )
+
+    all_zero_records = find_zero_pattern_records(
+        transformed_records,
+        zero_fields=numeric_fields,
+    )
+
+    print_record_table(
+        "Initial All-Zero Record Inspection",
+        all_zero_records,
+        fields=(
+            "trade_date",
+            "category_code",
+            "crop_code",
+            "crop_name",
+            "market_code",
+            "market_name",
+        ),
+    )
 
 def split_rest_records(
     records: list[dict],
@@ -42,29 +73,6 @@ def split_rest_records(
     ]
 
     return rest_records, non_rest_records
-
-
-def run_structure_profiling(
-    raw_records: list[dict],
-    transformed_records: list[dict],
-) -> None:
-    """執行 Raw 與 Transform 後的基本結構剖析。"""
-
-    raw_profile = profile_records(raw_records)
-
-    print_profile(
-        "Raw Data Profile",
-        raw_profile,
-    )
-
-    transformed_profile = profile_records(
-        transformed_records
-    )
-
-    print_profile(
-        "Transformed Data Profile",
-        transformed_profile,
-    )
 
 
 def run_relationship_profiling(
@@ -453,38 +461,47 @@ def main() -> None:
 
     validate_raw_records(rows)
 
+    raw_profile = profile_records(rows)
+    print_profile(
+        "Raw Data Profile",
+        raw_profile,
+    )
+
     transformed_rows = transform_agri_prices(rows)
 
-    rest_records, non_rest_records = (
-        split_rest_records(transformed_rows)
+    transformed_profile = profile_records(
+        transformed_rows
+    )
+    print_profile(
+        "Transformed Data Profile",
+        transformed_profile,
     )
 
-    run_structure_profiling(
-        rows,
+    run_initial_all_zero_inspection(
         transformed_rows,
     )
 
-    run_relationship_profiling(
-        transformed_rows,
-    )
+    # run_relationship_profiling(
+    #     transformed_rows,
+    # )
 
-    run_duplicate_profiling(
-        transformed_rows,
-        non_rest_records,
-        rest_records,
-    )
+    # run_duplicate_profiling(
+    #     transformed_rows,
+    #     non_rest_records,
+    #     rest_records,
+    # )
 
-    run_rest_record_profiling(
-        rest_records,
-    )
+    # run_rest_record_profiling(
+    #     rest_records,
+    # )
 
-    run_numeric_profiling(
-        non_rest_records,
-    )
+    # run_numeric_profiling(
+    #     non_rest_records,
+    # )
 
-    run_zero_pattern_detail_profiling(
-        non_rest_records,
-    )
+    # run_zero_pattern_detail_profiling(
+    #     non_rest_records,
+    # )
 
 
 if __name__ == "__main__":
