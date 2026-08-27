@@ -95,6 +95,20 @@ def run_non_rest_relationship_profiling(
         show_right_conflicts=False,
     )
 
+    crop_category_relationship = (
+        profile_field_relationship(
+            non_rest_records,
+            "crop_code",
+            "category_code",
+        )
+    )
+    print_relationship_profile(
+        "Non-Rest Crop Code / Category Relationship",
+        crop_category_relationship,
+        show_left_conflicts=True,
+        show_right_conflicts=False,
+    )
+
     crop_relationship = (
         profile_field_relationship(
             non_rest_records,
@@ -141,6 +155,69 @@ def run_rest_relationship_profiling(
         show_left_conflicts=True,
         show_right_conflicts=True,
     )
+
+def run_non_rest_null_category_crop_code_inspection(
+    non_rest_records: list[dict],
+) -> None:
+    """檢查 category_code 為 NULL 的 crop_code 是否曾出現已知 category。"""
+
+    null_category_crop_codes = {
+        record["crop_code"]
+        for record in non_rest_records
+        if record["category_code"] is None
+    }
+
+    print(
+        "\n=== Non-Rest NULL Category Crop Code Inspection ==="
+    )
+
+    print(
+        "Distinct crop_codes with category_code NULL: "
+        f"{len(null_category_crop_codes)}"
+    )
+
+    crop_codes_with_known_category = {}
+    crop_codes_without_known_category = []
+
+    for crop_code in sorted(null_category_crop_codes):
+        known_categories = sorted(
+            {
+                record["category_code"]
+                for record in non_rest_records
+                if record["crop_code"] == crop_code
+                and record["category_code"] is not None
+            }
+        )
+
+        if known_categories:
+            crop_codes_with_known_category[
+                crop_code
+            ] = known_categories
+        else:
+            crop_codes_without_known_category.append(
+                crop_code
+            )
+
+    print(
+        "Crop codes also observed with non-NULL category: "
+        f"{len(crop_codes_with_known_category)}"
+    )
+
+    for crop_code, categories in (
+        crop_codes_with_known_category.items()
+    ):
+        print(
+            f"  {crop_code} → "
+            f"{', '.join(categories)}"
+        )
+
+    print(
+        "Crop codes never observed with non-NULL category: "
+        f"{len(crop_codes_without_known_category)}"
+    )
+
+    for crop_code in crop_codes_without_known_category:
+        print(f"  {crop_code}")
 
 def run_non_rest_null_record_inspection(
     non_rest_records: list[dict],
@@ -510,8 +587,38 @@ def main() -> None:
         non_rest_records,
     )
 
+    run_non_rest_null_category_crop_code_inspection(
+        non_rest_records,
+    )
+
     run_non_rest_market_composite_relationship_profiling(
         non_rest_records,
+    )
+
+    non_rest_business_key_profile = profile_duplicate_keys(
+        non_rest_records,
+        (
+            "trade_date",
+            "crop_code",
+            "market_code",
+        ),
+    )
+    print_duplicate_profile(
+        "Non-Rest Candidate Business Key Profile",
+        non_rest_business_key_profile,
+    )
+
+    rest_business_key_profile = profile_duplicate_keys(
+        rest_records,
+        (
+            "trade_date",
+            "category_code",
+            "market_code",
+        ),
+    )
+    print_duplicate_profile(
+        "Rest Candidate Business Key Profile",
+        rest_business_key_profile,
     )
 
     # run_relationship_profiling(

@@ -765,7 +765,81 @@ market_code
 
 ---
 
-### 6.6 Current Identifier Relationship Conclusion
+### 6.6 Non-Rest Crop Code / Category Code Relationship
+
+為判斷 `category_code` 是否需要納入 Non-Rest Candidate Business Key，進一步檢查：
+
+```text
+crop_code → category_code
+```
+
+NULL Pattern：
+
+```text
+crop_code NULL=False, category_code NULL=False: 17,805
+crop_code NULL=False, category_code NULL=True:      86
+```
+
+在 `category_code` 有值的 records 中：
+
+```text
+同一 crop_code 對應多個 category_code：0 組
+```
+
+### Observation
+
+目前資料顯示，只要 `category_code` 有值，沒有觀察到同一個 `crop_code` 跨不同 category 出現。
+
+但這不能直接宣告所有 Non-Rest records 都存在完整的：
+
+```text
+crop_code → category_code
+```
+
+functional dependency，因為仍有 86 筆 `category_code = NULL` records。
+
+針對這 86 筆 records 進一步檢查後：
+
+```text
+Distinct crop_codes with category_code NULL: 14
+Crop codes also observed with non-NULL category: 0
+Crop codes never observed with non-NULL category: 14
+```
+
+這 14 個 crop code 為：
+
+```text
+DF3
+FE800
+FE820
+FE880
+FH010
+FH011
+FH013
+FU645
+IC804
+ID452
+ID453
+ID504
+ID752
+IH008
+```
+
+也就是說，在目前七天資料中，這 14 個 crop code 只出現在 `category_code = NULL` 的 records，沒有可由同期間其他 records 直接確認其 category 的觀察值。
+
+### Current Decision
+
+目前可以確認：
+
+- 對 `category_code` 非 NULL 的 Non-Rest records，`crop_code → category_code` 沒有觀察到 conflict。
+- 但不能將這個結果擴張為「所有 Non-Rest crop_code 都能由目前資料推得 category_code」。
+- 不因 crop code 的外觀或其他推測自行補上這 86 筆 records 的 `category_code`。
+- Transform 繼續保留來源提供的 `None`。
+- Candidate Business Key 是否需要 `category_code`，仍應以完整 key 的實際 uniqueness 驗證，而不是只依賴這個 relationship 推論。
+
+---
+
+### 6.7 Current Identifier Relationship Conclusion
 
 目前可以確認：
 
@@ -792,7 +866,12 @@ market_code → market_name
 
 Non-Rest:
 category_code + market_code → market_name
-→ 0 組一對多
+→ 0 組一對多（限完整 composite key records）
+
+Non-Rest:
+crop_code → category_code
+→ 非 NULL category records 中 0 組一對多
+→ 但 14 個 crop_code 在目前期間只出現 NULL category
 ```
 
 因此：
@@ -800,16 +879,165 @@ category_code + market_code → market_name
 - `crop_code` 目前比 `crop_name` 更適合作為作物 identifier。
 - `crop_name` 不適合作為唯一識別欄位。
 - `market_name` 不適合作為市場 Business Key。
-- `market_code` 的市場語意需要搭配 `category_code` context。
+- `market_code` 的市場語意需要搭配 category context 解讀。
 - 在 `category_code` 有值時，`category_code + market_code` 可穩定對應 `market_name`。
-- `category_code` 的 nullable 特性仍需在後續 Business Key / Schema 設計中另外處理。
+- `category_code` 的 nullable 特性必須在 Business Key / Schema 設計中明確處理。
+- 不能因目前 `crop_code → category_code` 無 conflict，就自行推導或補填缺失的 `category_code`。
 
-目前 Identifier Relationship Profiling 已完成本階段需要回答的問題。
+目前 Identifier Relationship Profiling 已完成本階段需要回答的問題；Candidate Business Key 的實際 uniqueness 結果記錄於第 7 節。
 
-下一步：
+---
+
+## 7. Candidate Business Key / Duplicate Profiling
+
+Identifier Relationship Profiling 完成後，分別對 Non-Rest 與 Rest records 驗證候選 Business Key 的 uniqueness。
+
+目前 Business Key 的目的，是在 Pipeline 中提供可重複執行的 record identity 與 duplicate detection 依據。
+
+這裡的結果仍只代表目前 Profiling 範圍，不等同於官方 API 已保證這些欄位組合永久唯一。
+
+### 7.1 Non-Rest Candidate Business Key
+
+候選欄位：
 
 ```text
-Candidate Business Key / Duplicate Profiling
+trade_date
++ crop_code
++ market_code
 ```
 
-重新確認 Rest 與 Non-Rest records 的候選 Business Key。
+實際結果：
+
+```text
+Rows:                  17,891
+Unique keys:           17,891
+Duplicate key groups:       0
+Rows in duplicate groups:   0
+Excess duplicate rows:      0
+```
+
+### Observation
+
+在目前 2026-08-01 至 2026-08-07 的 17,891 筆 Non-Rest records 中：
+
+```text
+(trade_date, crop_code, market_code)
+```
+
+可以唯一識別每一筆 record，沒有觀察到 duplicate key group。
+
+`category_code` 沒有加入這組 key，原因包括：
+
+- `category_code` 在目前 Non-Rest records 中有 86 筆為 `NULL`。
+- 這 86 筆 records 的 `crop_code`、`market_code` 仍有值。
+- 實際 uniqueness 驗證顯示，不加入 `category_code` 時，17,891 筆 records 仍全部具有唯一 key。
+- `market_name` 與 `crop_name` 為 descriptive label，不適合加入 Business Key。
+
+### Current Decision
+
+目前採用以下欄位組合作為 **Non-Rest v1 Candidate Business Key**：
+
+```text
+(trade_date, crop_code, market_code)
+```
+
+這是目前 Pipeline 設計的 candidate key，而不是宣告來源系統已提供永久不變的官方 primary key。
+
+後續 Data Quality 階段應持續檢查這組 key 的 duplicate；若未來資料出現 violation，再重新調查來源資料語意與 key 設計。
+
+---
+
+### 7.2 Rest Candidate Business Key
+
+Rest records 的：
+
+```text
+crop_code = "rest"
+```
+
+因此 `crop_code` 本身無法提供一般作物紀錄中的作物識別差異。
+
+目前驗證的候選欄位為：
+
+```text
+trade_date
++ category_code
++ market_code
+```
+
+實際結果：
+
+```text
+Rows:                     55
+Unique keys:              55
+Duplicate key groups:      0
+Rows in duplicate groups:  0
+Excess duplicate rows:     0
+```
+
+### Observation
+
+在目前 55 筆 Rest records 中：
+
+```text
+(trade_date, category_code, market_code)
+```
+
+可以唯一識別每一筆 Rest record，沒有觀察到 duplicate key group。
+
+### Current Decision
+
+目前採用以下欄位組合作為 **Rest v1 Candidate Business Key**：
+
+```text
+(trade_date, category_code, market_code)
+```
+
+Rest 與 Non-Rest 不強迫共用同一組 Business Key，因為兩類 records 的來源表示方式不同：
+
+```text
+Non-Rest
+→ crop_code 表示實際作物
+
+Rest
+→ crop_code 固定為 "rest"
+```
+
+因此分開定義 Candidate Business Key，較符合目前實際資料語意。
+
+---
+
+### 7.3 Current Business Key Conclusion
+
+目前 Profiling 範圍內：
+
+```text
+Non-Rest v1 Candidate Business Key
+(trade_date, crop_code, market_code)
+
+Rows:        17,891
+Unique keys: 17,891
+Duplicates:       0
+```
+
+```text
+Rest v1 Candidate Business Key
+(trade_date, category_code, market_code)
+
+Rows:        55
+Unique keys: 55
+Duplicates:   0
+```
+
+### Current Decision
+
+目前 Business Key / Duplicate Profiling 已完成本階段需要回答的問題。
+
+下一個 Profiling 階段：
+
+```text
+Numeric Distribution Profiling
+Zero Pattern Profiling
+```
+
+在完成數值分布與 Zero Pattern 的正式 profiling、整理其 findings 之後，再進入 Data Quality Rule 的收斂與實作。
