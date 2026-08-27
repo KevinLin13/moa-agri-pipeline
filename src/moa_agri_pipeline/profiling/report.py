@@ -401,3 +401,58 @@ def print_rest_split_summary(
     print(
         f"| Non-Rest | {non_rest_count} |"
     )
+
+def print_composite_relationship_profile(
+    title: str,
+    profile: dict[str, Any],
+) -> None:
+    """以易讀格式顯示複合欄位關係剖析結果。"""
+
+    print(f"\n=== {title} ===")
+
+    left_fields = profile["left_fields"]
+    right_field = profile["right_field"]
+
+    left_text = " + ".join(left_fields)
+
+    print(
+        f"{left_text} → {right_field}"
+    )
+
+    print("\nNULL 組合：")
+
+    for pattern, count in profile[
+        "null_patterns"
+    ].items():
+        field_names = (
+            *left_fields,
+            right_field,
+        )
+
+        null_text = ", ".join(
+            f"{field} NULL={is_null}"
+            for field, is_null
+            in zip(field_names, pattern)
+        )
+
+        print(
+            f"  {null_text}: {count}"
+        )
+
+    conflicts = profile["conflicts"]
+
+    print(
+        f"\n同一 {left_text} 對應多個 "
+        f"{right_field}：{len(conflicts)} 組"
+    )
+
+    for key, mapped_values in conflicts.items():
+        key_text = ", ".join(
+            repr(value)
+            for value in key
+        )
+
+        print(
+            f"  ({key_text}) → "
+            f"{', '.join(map(str, mapped_values))}"
+        )

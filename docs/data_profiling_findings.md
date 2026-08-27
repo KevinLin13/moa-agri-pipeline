@@ -384,7 +384,6 @@ all numeric fields = 0
 
 ## 6. Identifier Relationship Profiling
 
-
 ### 6.1 Rest Market Code / Market Name Relationship
 
 分析範圍：
@@ -669,7 +668,7 @@ market_code → market_name
 800 → 高雄市
 ```
 
-這些 Null-category records 可能參與目前的 Market Name conflict，因此下一步必須把 `category_code` context 納入分析，而不是直接把 `market_code` 當成全域市場 identifier。
+這些 Null-category records 可能參與目前的 Market Name conflict，因此需要把 `category_code` context 納入分析，而不是直接把 `market_code` 當成全域市場 identifier。
 
 ### Current Decision
 
@@ -679,19 +678,94 @@ market_code → market_name
 - 不假設 `market_code` 在所有 category 中具有全域唯一的市場語意。
 - 不自行統一 `台中市 / 台中市場`、`高雄市 / 高雄市場` 等來源名稱。
 - 保留 API 原始提供的 `market_name`。
-- 下一步驗證：
+- 進一步驗證：
 
 ```text
 (category_code, market_code) → market_name
 ```
 
-以確認在 `category_code` 有值的 Non-Rest records 中，加入 category context 後 Market Relationship 是否恢復為一對一。
-
 由於目前有 86 筆 `category_code = NULL`，這批 records 必須維持獨立觀察，不能因 composite relationship 無法建立完整 key 就直接刪除或補值。
 
 ---
 
-### 6.5 Current Identifier Relationship Conclusion
+### 6.5 Non-Rest Category + Market Code / Market Name Relationship
+
+為確認 `market_code → market_name` 的 3 組一對多是否來自不同 `category_code` context，進一步分析：
+
+```text
+category_code + market_code → market_name
+```
+
+Relationship 結果：
+
+```text
+NULL 組合：
+category_code NULL=False, market_code NULL=False, market_name NULL=False: 17,805
+category_code NULL=True, market_code NULL=False, market_name NULL=False:      86
+
+同一 category_code + market_code 對應多個 market_name：0 組
+```
+
+### Observation
+
+在 `category_code` 有值的 Non-Rest records 中：
+
+```text
+category_code + market_code → market_name
+```
+
+沒有觀察到一對多 conflict。
+
+因此目前七天資料支持：
+
+> `market_code` 單獨使用時不是跨 category 的全域唯一市場識別欄位；但加入 `category_code` 後，目前可以穩定對應唯一的 `market_name`。
+
+這也說明先前觀察到的：
+
+```text
+400 → 台中市 / 台中市場
+514 → 彰化市場 / 溪湖鎮
+800 → 高雄市 / 高雄市場
+```
+
+不能直接視為 Market Mapping 錯誤，而應先考慮不同 `category_code` 下的市場語意。
+
+另外仍有 86 筆：
+
+```text
+category_code = NULL
+market_code != NULL
+market_name != NULL
+```
+
+這些 records 無法形成完整的 `category_code + market_code` composite identifier，因此目前仍保留來源值，不自行補上 `category_code`。
+
+### Current Decision
+
+目前市場欄位的識別關係應理解為：
+
+```text
+category_code + market_code
+→ market_name
+```
+
+而不是：
+
+```text
+market_code
+→ market_name
+```
+
+因此：
+
+- 不使用 `market_name` 作為 Business Key。
+- 不把 `market_code` 視為跨 category 的全域唯一市場 identifier。
+- 不自行修改或統一 API 提供的 `market_name`。
+- 86 筆 `category_code = NULL` records 繼續保留，不自行推導 category。
+
+---
+
+### 6.6 Current Identifier Relationship Conclusion
 
 目前可以確認：
 
@@ -715,17 +789,27 @@ crop_name → crop_code
 Non-Rest:
 market_code → market_name
 → 3 組一對多
+
+Non-Rest:
+category_code + market_code → market_name
+→ 0 組一對多
 ```
 
 因此：
 
 - `crop_code` 目前比 `crop_name` 更適合作為作物 identifier。
-- `market_name` 不應作為市場 Business Key 欄位。
-- `market_code` 的語意需要搭配 category context 再確認。
-- `category_code` 的 nullable 特性會影響後續 Market Relationship 與資料模型設計。
+- `crop_name` 不適合作為唯一識別欄位。
+- `market_name` 不適合作為市場 Business Key。
+- `market_code` 的市場語意需要搭配 `category_code` context。
+- 在 `category_code` 有值時，`category_code + market_code` 可穩定對應 `market_name`。
+- `category_code` 的 nullable 特性仍需在後續 Business Key / Schema 設計中另外處理。
 
-Identifier Relationship 尚未完全結束；下一個必要驗證是：
+目前 Identifier Relationship Profiling 已完成本階段需要回答的問題。
+
+下一步：
 
 ```text
-(category_code, market_code) → market_name
+Candidate Business Key / Duplicate Profiling
 ```
+
+重新確認 Rest 與 Non-Rest records 的候選 Business Key。

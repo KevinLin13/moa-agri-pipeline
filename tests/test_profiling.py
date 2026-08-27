@@ -61,6 +61,11 @@ def test_profile_composite_relationship_detects_conflict():
             "market_code": "400",
             "market_name": "台中市",
         },
+        {
+            "category_code": None,
+            "market_code": "400",
+            "market_name": "台中市",
+        },
     ]
 
     result = profile_composite_relationship(
@@ -72,8 +77,11 @@ def test_profile_composite_relationship_detects_conflict():
         "market_name",
     )
 
-    assert result["left_key_count"] == 2
-    assert result["conflict_count"] == 1
+    assert result["null_patterns"] == {
+        (False, False, False): 3,
+        (True, False, False): 1,
+    }
+
     assert result["conflicts"] == {
         ("N06", "400"): [
             "台中市",

@@ -247,6 +247,7 @@ def profile_composite_relationship(
     """分析多個欄位組成的 key 與單一欄位之間的對應關係。"""
 
     left_to_right = defaultdict(set)
+    null_patterns = Counter()
 
     for record in records:
         left_key = tuple(
@@ -256,8 +257,20 @@ def profile_composite_relationship(
 
         right_value = record.get(right_field)
 
+        null_pattern = tuple(
+            value is None
+            for value in left_key
+        ) + (
+            right_value is None,
+        )
+
+        null_patterns[null_pattern] += 1
+
         if (
-            all(value is not None for value in left_key)
+            all(
+                value is not None
+                for value in left_key
+            )
             and right_value is not None
         ):
             left_to_right[left_key].add(
@@ -273,8 +286,7 @@ def profile_composite_relationship(
     return {
         "left_fields": left_fields,
         "right_field": right_field,
-        "left_key_count": len(left_to_right),
-        "conflict_count": len(conflicts),
+        "null_patterns": dict(null_patterns),
         "conflicts": conflicts,
     }
 

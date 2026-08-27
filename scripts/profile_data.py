@@ -12,6 +12,7 @@ from moa_agri_pipeline.profiling.records import (
     profile_zero_patterns,
 )
 from moa_agri_pipeline.profiling.report import (
+    print_composite_relationship_profile,
     print_duplicate_profile,
     print_numeric_distribution_profile,
     print_profile,
@@ -164,6 +165,30 @@ def run_non_rest_null_record_inspection(
             "market_code",
             "market_name",
         ),
+    )
+
+def run_non_rest_market_composite_relationship_profiling(
+    non_rest_records: list[dict],
+) -> None:
+    """分析 category + market code 與 market name 的關係。"""
+
+    market_relationship = (
+        profile_composite_relationship(
+            non_rest_records,
+            (
+                "category_code",
+                "market_code",
+            ),
+            "market_name",
+        )
+    )
+
+    print_composite_relationship_profile(
+        (
+            "Non-Rest Category + Market Code "
+            "/ Market Name Relationship"
+        ),
+        market_relationship,
     )
 
 def run_rest_record_profiling(
@@ -477,14 +502,18 @@ def main() -> None:
     run_non_rest_relationship_profiling(
         non_rest_records,
     )
-
     run_rest_relationship_profiling(
         rest_records,
     )
 
     run_non_rest_null_record_inspection(
-        non_rest_records
+        non_rest_records,
     )
+
+    run_non_rest_market_composite_relationship_profiling(
+        non_rest_records,
+    )
+
     # run_relationship_profiling(
     #     transformed_rows,
     # )
