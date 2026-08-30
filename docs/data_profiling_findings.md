@@ -1736,3 +1736,229 @@ Data Quality Rule Freeze
 → Data Quality implementation
 ```
 
+---
+
+## 10. Data Quality v1 Rule Freeze and Implementation
+
+完成前述 Data Profiling 後，已依 Structure、Identifier Relationship、Candidate Business Key、Numeric Distribution 與 Zero Pattern findings，將目前具有足夠工程依據的規則正式收斂為 Data Quality v1。
+
+本階段的原則為：
+
+```text
+有明確 schema / engineering contract
+→ Hard Fail
+
+來源已確認存在且目前無證據為錯誤
+→ Allowed / Preserve
+
+值得關注但尚無足夠依據判定錯誤
+→ Preserve / Future Monitoring
+```
+
+### 10.1 Schema and Nullable Rules
+
+Transform 後每筆 record 必須保留既定 11 個欄位。
+
+其中：
+
+```text
+trade_date
+→ datetime.date
+```
+
+必要文字欄位：
+
+```text
+crop_code
+market_code
+market_name
+```
+
+必須為非空 `str`。
+
+依第 6 節 Profiling finding，來源中已確認可能出現：
+
+```text
+category_code = None
+crop_name = None
+```
+
+因此 Data Quality v1 將兩個欄位定義為：
+
+```text
+category_code: str | None
+crop_name:     str | None
+```
+
+若值不是 `None`，仍必須為非空字串。
+
+### 10.2 Numeric Validity Rules
+
+以下五個欄位：
+
+```text
+upper_price
+middle_price
+lower_price
+avg_price
+volume
+```
+
+Data Quality v1 要求：
+
+```text
+type = float
+finite
+value >= 0
+```
+
+因此以下狀態為 Hard Fail：
+
+```text
+non-float
+NaN
++Infinity
+-Infinity
+negative value
+```
+
+`0.0` 為合法值。
+
+這項決策與第 8、9 節 findings 一致：目前來源資料中存在少量合法保留的 Zero Patterns，因此不建立 `value > 0` 的 Hard Fail Rule。
+
+### 10.3 Requested Date Range Rule
+
+每筆 transformed record 的：
+
+```text
+trade_date
+```
+
+必須落在本次 Extract request 的日期範圍：
+
+```text
+start_date <= trade_date <= end_date
+```
+
+若 `trade_date` 早於 `start_date` 或晚於 `end_date`，代表本次 Extract request 與實際資料內容不一致，因此視為 Hard Fail。
+
+### 10.4 Business Key Duplicate Rules
+
+依第 7 節 Candidate Business Key Profiling 結果，Data Quality v1 對 Rest 與 Non-Rest records 使用不同 duplicate key。
+
+Non-Rest：
+
+```text
+crop_code != "rest"
+
+Business Key:
+(trade_date, crop_code, market_code)
+```
+
+若同一批 transformed records 中出現重複 key：
+
+```text
+→ Hard Fail
+```
+
+Rest：
+
+```text
+crop_code = "rest"
+
+Business Key:
+(trade_date, category_code, market_code)
+```
+
+若出現重複 key：
+
+```text
+→ Hard Fail
+```
+
+由於 `category_code` 是 Rest v1 Business Key 的組成欄位，因此 Rest record 的 `category_code` 不允許為 `None`。
+
+這不改變一般 Non-Rest records 中：
+
+```text
+category_code = None
+```
+
+仍屬 allowed source pattern 的決策。
+
+### 10.5 Zero Pattern Treatment
+
+Data Quality v1 不將目前觀察到的 Non-Rest Zero Patterns 設定為 Hard Fail。
+
+| Pattern | Data Quality v1 Treatment |
+|---|---|
+| Non-Rest All Numeric Zero | Preserve; future monitoring candidate |
+| Lower Price Only Zero | Allowed |
+| All Prices Zero + Positive Volume | Preserve; future warning / monitoring candidate |
+
+因此目前 Pipeline 不會因上述 pattern：
+
+```text
+刪除 record
+將 0 改成 NULL
+自行補值
+阻止 Load
+```
+
+Warning / Monitoring framework 暫不納入 Data Quality v1，留待後續 Pipeline Monitoring 階段處理。
+
+### 10.6 Validation Result
+
+Data Quality v1 完成後已執行：
+
+```text
+pytest tests/test_quality.py -v
+→ 26 passed
+
+pytest -v
+→ 45 passed
+```
+
+並使用真實農業部 API 資料執行：
+
+```text
+python scripts/check_api.py
+```
+
+結果：
+
+```text
+Raw Validation: PASS
+Data Quality:   PASS
+Rows:           3,480
+```
+
+本次真實資料 3,480 筆全部通過目前 Data Quality v1。
+
+### Current Decision
+
+Data Quality v1 至此完成。
+
+目前 Hard Fail 範圍凍結為：
+
+```text
+Schema / required fields
+Type validation
+Required identifier completeness
+Nullable field contract
+Finite numeric validation
+Non-negative numeric validation
+Requested date range
+Non-Rest Business Key duplicate
+Rest Business Key duplicate
+Rest category_code completeness
+```
+
+目前不再增加新的 Data Quality Hard Fail Rule。
+
+下一階段：
+
+```text
+Load
+→ Persist transformed canonical data
+```

@@ -317,76 +317,6 @@ def run_rest_record_profiling(
     print(f"All numeric fields zero: {all_zero}")
 
 
-def run_duplicate_profiling(
-    records: list[dict],
-    non_rest_records: list[dict],
-    rest_records: list[dict],
-) -> None:
-    """執行候選 Business Key 與重複資料剖析。"""
-
-    duplicate_profile = profile_duplicate_keys(
-        records,
-        (
-            "trade_date",
-            "category_code",
-            "crop_code",
-            "market_code",
-        ),
-    )
-
-    print_duplicate_profile(
-        "Candidate Business Key Duplicate Profile",
-        duplicate_profile,
-    )
-
-    duplicate_groups = find_duplicate_record_groups(
-        records,
-        (
-            "trade_date",
-            "category_code",
-            "crop_code",
-            "market_code",
-        ),
-    )
-
-    print("\n=== Duplicate Record Details ===")
-
-    for key, duplicate_records in list(
-        duplicate_groups.items()
-    )[:5]:
-        print(f"\nKey: {key}")
-
-        for record in duplicate_records:
-            print(record)
-
-    non_rest_duplicate_profile = profile_duplicate_keys(
-        non_rest_records,
-        (
-            "trade_date",
-            "crop_code",
-            "market_code",
-        ),
-    )
-
-    print_duplicate_profile(
-        "Non-Rest Business Key Duplicate Profile",
-        non_rest_duplicate_profile,
-    )
-
-    rest_duplicate_profile = profile_duplicate_keys(
-        rest_records,
-        (
-            "trade_date",
-            "category_code",
-            "market_code",
-        ),
-    )
-
-    print_duplicate_profile(
-        "Rest Record Key Duplicate Profile",
-        rest_duplicate_profile,
-    )
-
 def run_numeric_distribution_profiling(
     non_rest_records: list[dict],
 ) -> None:
@@ -607,12 +537,6 @@ def main() -> None:
     run_zero_pattern_targeted_inspection(
         non_rest_records,
     )
-
-    # run_duplicate_profiling(
-    #     transformed_rows,
-    #     non_rest_records,
-    #     rest_records,
-    # )
 
     # run_rest_record_profiling(
     #     rest_records,
