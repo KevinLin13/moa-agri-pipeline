@@ -255,6 +255,8 @@ def print_numeric_distribution_profile(
         for statistic in (
             "mean",
             "std",
+            "cv",
+            "skewness",
             "min",
             "q1",
             "median",

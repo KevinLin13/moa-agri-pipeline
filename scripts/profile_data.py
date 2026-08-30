@@ -387,8 +387,7 @@ def run_duplicate_profiling(
         rest_duplicate_profile,
     )
 
-
-def run_numeric_profiling(
+def run_numeric_distribution_profiling(
     non_rest_records: list[dict],
 ) -> None:
     """分析一般交易紀錄的數值分布。"""
@@ -409,6 +408,19 @@ def run_numeric_profiling(
     print_numeric_distribution_profile(
         "Non-Rest Numeric Distribution Profile",
         numeric_profile,
+    )
+
+def run_zero_pattern_profiling(
+    non_rest_records: list[dict],
+) -> None:
+    """分析一般交易紀錄的數值 0 值共同出現模式。"""
+
+    numeric_fields = (
+        "upper_price",
+        "middle_price",
+        "lower_price",
+        "avg_price",
+        "volume",
     )
 
     zero_pattern_profile = profile_zero_patterns(
@@ -621,6 +633,14 @@ def main() -> None:
         rest_business_key_profile,
     )
 
+    run_numeric_distribution_profiling(
+        non_rest_records,
+    )
+
+    # run_zero_pattern_profiling(
+    #     non_rest_records,
+    # )
+
     # run_relationship_profiling(
     #     transformed_rows,
     # )
@@ -635,9 +655,6 @@ def main() -> None:
     #     rest_records,
     # )
 
-    # run_numeric_profiling(
-    #     non_rest_records,
-    # )
 
     # run_zero_pattern_detail_profiling(
     #     non_rest_records,

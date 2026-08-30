@@ -1033,11 +1033,290 @@ Duplicates:   0
 
 目前 Business Key / Duplicate Profiling 已完成本階段需要回答的問題。
 
-下一個 Profiling 階段：
+下一個 Profiling 階段依序為：
 
 ```text
 Numeric Distribution Profiling
+→ Zero Pattern Profiling
+```
+
+Numeric Distribution Profiling 的結果記錄於第 8 節；完成 Zero Pattern Profiling 後，再進入 Data Quality Rule 的收斂與實作。
+
+---
+
+## 8. Non-Rest Numeric Distribution Profiling
+
+### 8.1 Scope and Method
+
+Numeric Distribution Profiling 只分析：
+
+```text
+17,891 Non-Rest records
+```
+
+Rest records 已知五個數值欄位皆為 `0.0`，因此不納入一般交易數值分布，以避免休市資料影響 Non-Rest distribution 的解讀。
+
+分析欄位：
+
+```text
+upper_price
+middle_price
+lower_price
+avg_price
+volume
+```
+
+本階段使用的描述統計包括：
+
+- finite / non-numeric / non-finite count
+- zero count / zero rate
+- mean / standard deviation
+- coefficient of variation（CV）
+- skewness
+- min / Q1 / median / Q3 / max
+
+其中：
+
+```text
+CV = standard deviation / mean
+```
+
+用來描述相對離散程度；`skewness` 用來描述分布的不對稱程度。兩者用途不同，不使用 CV 作為偏態判定指標。
+
+Skewness 目前採用 population moment skewness，與目前使用 population standard deviation 的 descriptive profiling 定義保持一致。
+
+---
+
+### 8.2 Numeric Distribution Result
+
+| Field | Finite | Non-numeric | Non-finite | Zero | Zero Rate | Mean | Std | CV | Skewness | Min | Q1 | Median | Q3 | Max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `upper_price` | 17,891 | 0 | 0 | 48 | 0.27% | 96.70 | 90.60 | 0.94 | 2.57 | 0.00 | 35.00 | 69.80 | 130.00 | 1050.00 |
+| `middle_price` | 17,891 | 0 | 0 | 48 | 0.27% | 79.23 | 78.01 | 0.98 | 2.73 | 0.00 | 26.00 | 52.00 | 108.00 | 1000.00 |
+| `lower_price` | 17,891 | 0 | 0 | 54 | 0.30% | 64.16 | 72.15 | 1.12 | 3.13 | 0.00 | 18.00 | 38.00 | 87.00 | 1000.00 |
+| `avg_price` | 17,891 | 0 | 0 | 48 | 0.27% | 79.55 | 77.87 | 0.98 | 2.72 | 0.00 | 26.40 | 52.80 | 108.50 | 1000.00 |
+| `volume` | 17,891 | 0 | 0 | 46 | 0.26% | 1905.28 | 6846.21 | 3.59 | 16.56 | 0.00 | 54.00 | 267.50 | 1332.00 | 234587.00 |
+
+---
+
+### 8.3 Numeric Validity
+
+五個 Non-Rest 數值欄位皆有：
+
+```text
+Finite values: 17,891
+Non-numeric:         0
+Non-finite:          0
+```
+
+### Observation
+
+目前 2026-08-01 至 2026-08-07 的 Non-Rest records 中，未觀察到：
+
+- 非數值型資料混入上述五個數值欄位。
+- `NaN`。
+- `+Infinity`。
+- `-Infinity`。
+
+這表示在目前 Profiling 範圍內，五個數值欄位的 numeric type / finite-value 狀態一致。
+
+---
+
+### 8.4 Zero Values
+
+五個數值欄位皆存在少量 `0.0`：
+
+```text
+upper_price   48 rows  (0.27%)
+middle_price  48 rows  (0.27%)
+lower_price   54 rows  (0.30%)
+avg_price     48 rows  (0.27%)
+volume        46 rows  (0.26%)
+```
+
+### Observation
+
+各欄位的 zero rate 目前皆約落在：
+
+```text
+0.26% ~ 0.30%
+```
+
+但這些數字只是各欄位的 marginal zero count。
+
+因此不能僅由：
+
+```text
+upper_price = 48
+middle_price = 48
+avg_price = 48
+```
+
+直接推論這三個欄位的 `0` 一定發生在完全相同的 48 筆 records。
+
+同樣地，也不能僅由：
+
+```text
+lower_price = 54
+其他價格欄位 = 48
+```
+
+直接宣告額外 6 筆一定是「只有 lower_price = 0」。
+
+不同數值欄位的 zero 是否共同出現在相同 records，必須由下一階段 Zero Pattern Profiling 直接驗證。
+
+### Current Decision
+
+目前不因單一數值欄位為 `0.0` 就判定 record invalid，也不把目前的 zero count 差異直接轉換成 Data Quality Rule。
+
+---
+
+### 8.5 Price Distribution Shape
+
+四個價格欄位的 skewness：
+
+```text
+upper_price   2.57
+middle_price  2.73
+lower_price   3.13
+avg_price     2.72
+```
+
+四個數值皆明顯大於 `0`，且 mean 亦高於 median：
+
+```text
+upper_price   mean 96.70  > median 69.80
+middle_price  mean 79.23  > median 52.00
+lower_price   mean 64.16  > median 38.00
+avg_price     mean 79.55  > median 52.80
+```
+
+### Observation
+
+目前資料顯示四個價格欄位皆具有明顯的正偏（右偏）與長右尾。
+
+其中 `lower_price` 在四個價格欄位中具有目前最高的：
+
+```text
+CV       = 1.12
+Skewness = 3.13
+```
+
+表示在目前資料範圍內，其相對離散程度與分布不對稱程度均高於其他三個價格欄位。
+
+但目前不將任何固定 skewness 數值視為正式統計檢定的臨界值；skewness 在此僅作為 descriptive distribution measure。
+
+另外，雖然最大價格：
+
+```text
+upper_price max  = 1050
+middle_price max = 1000
+lower_price max  = 1000
+avg_price max    = 1000
+```
+
+明顯高於各欄位的 Q3，但目前資料同時混合不同作物、category 與市場，因此尚無證據將這些高值直接判定為錯誤資料。
+
+---
+
+### 8.6 Volume Distribution Shape
+
+`volume` 的分布：
+
+```text
+Mean:       1905.28
+Median:      267.50
+Std:        6846.21
+CV:            3.59
+Skewness:     16.56
+Q3:         1332.00
+Max:      234587.00
+```
+
+### Observation
+
+`volume` 呈現比價格欄位更強烈的正偏與長右尾。
+
+其中：
+
+```text
+CV = 3.59
+```
+
+表示標準差約為平均數的 3.59 倍，反映目前資料具有很高的相對離散程度。
+
+而：
+
+```text
+Skewness = 16.56
+```
+
+則直接顯示目前 `volume` 分布具有非常強烈的正偏與長右尾。
+
+這兩個指標的意義應分開解讀：
+
+```text
+CV
+→ relative variability
+
+Skewness
+→ distribution asymmetry
+```
+
+因此不能以：
+
+```text
+Std > Mean × 3
+```
+
+作為「嚴重右偏」的正式判定標準。
+
+同時：
+
+```text
+Max = 234587
+```
+
+雖然遠高於 median 與 Q3，但這只能表示存在非常高的交易量 observations；目前沒有足夠依據判定這些 observations 為資料錯誤。
+
+---
+
+### 8.7 Current Numeric Distribution Decision
+
+目前 Numeric Distribution Profiling 可以確認：
+
+1. 五個 Non-Rest 數值欄位均為 finite numeric values，未觀察到 non-numeric、`NaN` 或 `±Infinity`。
+2. 五個欄位皆存在少量 `0.0`，zero rate 約為 `0.26% ~ 0.30%`，但各欄位零值的 joint pattern 尚未由本階段確認。
+3. 四個價格欄位均呈明顯正偏與長右尾，skewness 約為 `2.57 ~ 3.13`。
+4. `volume` 的 `CV = 3.59`、`skewness = 16.56`，顯示相對離散程度很高，且具有非常強烈的正偏與長右尾。
+5. 目前沒有足夠依據將高價格、高交易量或單一欄位的 `0.0` 直接判定為 invalid data。
+
+### Current Decision
+
+目前不根據整體：
+
+```text
+mean
+standard deviation
+CV
+skewness
+max
+```
+
+直接建立價格或交易量的固定上限 Hard Fail Rule。
+
+這些統計量目前用於理解來源 distribution，而不是作為自動判定資料錯誤的 threshold。
+
+Numeric Distribution Profiling 到此完成。
+
+下一個需要回答的工程問題為：
+
+> 五個數值欄位的 `0.0` 在 record 層級實際形成哪些共同 Zero Patterns？
+
+下一階段：
+
+```text
 Zero Pattern Profiling
 ```
 
-在完成數值分布與 Zero Pattern 的正式 profiling、整理其 findings 之後，再進入 Data Quality Rule 的收斂與實作。
+完成 Zero Pattern 的正式 profiling 與 finding 後，再進入 Data Quality Rule 的收斂與實作。

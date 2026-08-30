@@ -340,6 +340,8 @@ def profile_numeric_fields(
                 "zero_rate": None,
                 "mean": None,
                 "std": None,
+                "cv": None,
+                "skewness": None,
                 "min": None,
                 "q1": None,
                 "median": None,
@@ -358,6 +360,23 @@ def profile_numeric_fields(
                 method="inclusive",
             )
 
+        mean_value = fmean(finite_values)
+        std_value = pstdev(finite_values)
+        cv = (
+            std_value / mean_value
+            if mean_value > 0
+            else None
+        )
+        skewness = (
+            fmean(
+                (value - mean_value) ** 3
+                for value in finite_values
+            )
+            / (std_value ** 3)
+            if std_value > 0
+            else None
+        )
+
         field_profiles[field] = {
             "row_count": len(values),
             "finite_count": len(finite_values),
@@ -365,8 +384,10 @@ def profile_numeric_fields(
             "non_finite_count": non_finite_count,
             "zero_count": zero_count,
             "zero_rate": zero_count / len(finite_values),
-            "mean": fmean(finite_values),
-            "std": pstdev(finite_values),
+            "mean": mean_value,
+            "std": std_value,
+            "cv": cv,
+            "skewness": skewness,
             "min": min(finite_values),
             "q1": q1,
             "median": median(finite_values),

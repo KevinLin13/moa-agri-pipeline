@@ -198,7 +198,28 @@ def test_profile_numeric_fields_calculates_distribution():
     assert profile["median"] == 15.0
     assert profile["q3"] == pytest.approx(22.5)
     assert profile["max"] == 30.0
+    assert profile["std"] == pytest.approx(11.1803398875)
+    assert profile["cv"] == pytest.approx(0.7453559925)
+    assert profile["skewness"] == pytest.approx(0.0)
 
+def test_profile_numeric_fields_handles_undefined_cv_and_skewness():
+    records = [
+        {"avg_price": 0.0},
+        {"avg_price": 0.0},
+        {"avg_price": 0.0},
+    ]
+
+    result = profile_numeric_fields(
+        records,
+        ("avg_price",),
+    )
+
+    profile = result["fields"]["avg_price"]
+
+    assert profile["mean"] == 0.0
+    assert profile["std"] == 0.0
+    assert profile["cv"] is None
+    assert profile["skewness"] is None
 
 def test_profile_numeric_fields_separates_invalid_numeric_values():
     records = [
