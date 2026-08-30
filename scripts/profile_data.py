@@ -433,117 +433,80 @@ def run_zero_pattern_profiling(
         zero_pattern_profile,
     )
 
-def run_zero_pattern_detail_profiling(
-
+def run_zero_pattern_targeted_inspection(
     non_rest_records: list[dict],
-
 ) -> None:
-
-    """顯示一般交易紀錄中特殊 0 值模式的實際資料。"""
-
-
+    """檢視需要進一步解讀的 Non-Rest Zero Patterns。"""
 
     price_fields = (
-
         "upper_price",
-
         "middle_price",
-
         "lower_price",
-
         "avg_price",
-
     )
-
-
 
     numeric_fields = (
-
         *price_fields,
-
         "volume",
-
     )
-
-
 
     all_numeric_zero_records = find_zero_pattern_records(
-
         non_rest_records,
-
         zero_fields=numeric_fields,
-
     )
-
-
 
     lower_price_only_zero_records = find_zero_pattern_records(
-
         non_rest_records,
-
         zero_fields=("lower_price",),
-
         nonzero_fields=(
-
             "upper_price",
-
             "middle_price",
-
             "avg_price",
-
             "volume",
-
         ),
-
     )
-
-
 
     zero_prices_with_volume_records = find_zero_pattern_records(
-
         non_rest_records,
-
         zero_fields=price_fields,
-
         nonzero_fields=("volume",),
-
     )
 
+    identifier_fields = (
+        "trade_date",
+        "category_code",
+        "crop_code",
+        "crop_name",
+        "market_code",
+        "market_name",
+    )
 
+    detail_fields = (
+        *identifier_fields,
+        "upper_price",
+        "middle_price",
+        "lower_price",
+        "avg_price",
+        "volume",
+    )
 
-    print("\n=== All Numeric Fields Zero Details ===")
+    print_record_table(
+        "Non-Rest All Numeric Fields Zero Inspection",
+        all_numeric_zero_records,
+        fields=identifier_fields,
+    )
 
-    print(f"Rows: {len(all_numeric_zero_records)}")
+    print_record_table(
+        "Lower Price Only Zero Inspection",
+        lower_price_only_zero_records,
+        fields=detail_fields,
+    )
 
-
-
-    for record in all_numeric_zero_records:
-
-        print(record)
-
-
-
-    print("\n=== Lower Price Only Zero Details ===")
-
-    print(f"Rows: {len(lower_price_only_zero_records)}")
-
-
-
-    for record in lower_price_only_zero_records:
-
-        print(record)
-
-
-
-    print("\n=== All Prices Zero With Volume Details ===")
-
-    print(f"Rows: {len(zero_prices_with_volume_records)}")
-
-
-
-    for record in zero_prices_with_volume_records:
-
-        print(record)
+    print_record_table(
+        "All Prices Zero With Volume Inspection",
+        zero_prices_with_volume_records,
+        fields=detail_fields,
+    )
 
 def main() -> None:
     start_date = date(2026, 8, 1)
@@ -637,13 +600,13 @@ def main() -> None:
         non_rest_records,
     )
 
-    # run_zero_pattern_profiling(
-    #     non_rest_records,
-    # )
+    run_zero_pattern_profiling(
+        non_rest_records,
+    )
 
-    # run_relationship_profiling(
-    #     transformed_rows,
-    # )
+    run_zero_pattern_targeted_inspection(
+        non_rest_records,
+    )
 
     # run_duplicate_profiling(
     #     transformed_rows,
@@ -653,11 +616,6 @@ def main() -> None:
 
     # run_rest_record_profiling(
     #     rest_records,
-    # )
-
-
-    # run_zero_pattern_detail_profiling(
-    #     non_rest_records,
     # )
 
 

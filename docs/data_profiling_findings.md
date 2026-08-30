@@ -1033,14 +1033,17 @@ Duplicates:   0
 
 目前 Business Key / Duplicate Profiling 已完成本階段需要回答的問題。
 
-下一個 Profiling 階段依序為：
+後續 Profiling 已完成：
 
 ```text
 Numeric Distribution Profiling
-→ Zero Pattern Profiling
+→ 第 8 節
+
+Zero Pattern Profiling
+→ 第 9 節
 ```
 
-Numeric Distribution Profiling 的結果記錄於第 8 節；完成 Zero Pattern Profiling 後，再進入 Data Quality Rule 的收斂與實作。
+Numeric Distribution 與 Zero Pattern 的目前 findings 均已整理完成；下一階段進入 Data Quality Rule 的收斂與實作。
 
 ---
 
@@ -1163,7 +1166,7 @@ lower_price = 54
 
 直接宣告額外 6 筆一定是「只有 lower_price = 0」。
 
-不同數值欄位的 zero 是否共同出現在相同 records，必須由下一階段 Zero Pattern Profiling 直接驗證。
+不同數值欄位的 zero 是否共同出現在相同 records，已由第 9 節 Zero Pattern Profiling 直接驗證。
 
 ### Current Decision
 
@@ -1309,14 +1312,427 @@ max
 
 Numeric Distribution Profiling 到此完成。
 
-下一個需要回答的工程問題為：
+五個數值欄位在 record 層級的 joint zero patterns 已由第 9 節 Zero Pattern Profiling 進一步驗證。
+
+Numeric Distribution Profiling 到此維持完成狀態。
+
+---
+
+## 9. Non-Rest Zero Pattern Profiling
+
+### 9.1 Scope and Method
+
+Zero Pattern Profiling 延續 Numeric Distribution 的範圍，只分析：
+
+```text
+17,891 Non-Rest records
+```
+
+分析欄位：
+
+```text
+upper_price
+middle_price
+lower_price
+avg_price
+volume
+```
+
+本階段的問題不是再次查看單一欄位的 zero count，而是直接回答：
 
 > 五個數值欄位的 `0.0` 在 record 層級實際形成哪些共同 Zero Patterns？
+
+因此針對每一筆 Non-Rest record，記錄上述五個欄位是否為 `0.0`，並統計各 joint pattern 的 count 與 rate。
+
+在取得 pattern summary 後，再針對會影響後續 Data Quality 設計的特殊 pattern 進行 targeted inspection。
+
+---
+
+### 9.2 Joint Zero Pattern Result
+
+實際結果：
+
+```text
+Rows:                   17,891
+Distinct zero patterns:      4
+Rows with no zero:       17,837
+Rows with all fields zero:   46
+```
+
+| Zero Pattern | Rows | Rate |
+|---|---:|---:|
+| No zero fields | 17,837 | 99.70% |
+| `upper_price + middle_price + lower_price + avg_price + volume = 0` | 46 | 0.26% |
+| `lower_price = 0` only | 6 | 0.03% |
+| `upper_price + middle_price + lower_price + avg_price = 0`, `volume != 0` | 2 | 0.01% |
+
+### Observation
+
+目前七天的 17,891 筆 Non-Rest records 中，只觀察到上述 4 種 Zero Pattern，沒有其他 joint zero combinations。
+
+因此共有：
+
+```text
+46 + 6 + 2 = 54 rows
+```
+
+至少一個數值欄位為 `0.0`；其餘 17,837 筆五個數值欄位皆非零。
+
+這 4 種 pattern 的總筆數為：
+
+```text
+17,837 + 46 + 6 + 2 = 17,891
+```
+
+與 Non-Rest row count 完全一致。
+
+---
+
+### 9.3 Relationship to Numeric Distribution Zero Counts
+
+第 8 節 Numeric Distribution 中的 marginal zero counts 為：
+
+```text
+upper_price   48
+middle_price  48
+lower_price   54
+avg_price     48
+volume        46
+```
+
+Zero Pattern Profiling 現在可直接解釋這些 counts：
+
+```text
+upper_price
+= 46 all-numeric-zero
++ 2 all-prices-zero-with-volume
+= 48
+```
+
+```text
+middle_price
+= 46 + 2
+= 48
+```
+
+```text
+avg_price
+= 46 + 2
+= 48
+```
+
+```text
+lower_price
+= 46 all-numeric-zero
++ 6 lower-price-only-zero
++ 2 all-prices-zero-with-volume
+= 54
+```
+
+```text
+volume
+= 46 all-numeric-zero
+```
+
+### Finding
+
+因此，第 8 節只能由 marginal counts 提出的以下 hypotheses，現已由 record-level joint pattern 直接驗證：
+
+- `upper_price`、`middle_price`、`avg_price` 的 48 筆 zero 確實發生在相同 48 筆 records。
+- `lower_price` 額外的 6 筆 zero 確實都是 `lower_price` alone zero，而其他四個數值欄位皆非零。
+- 48 筆四個價格欄位皆為 zero 的 records 中，46 筆 `volume = 0`，另有 2 筆 `volume > 0`。
+
+在目前七天資料中，只要任一數值欄位為 `0.0`，`lower_price` 也一定為 `0.0`；但這只是目前 dataset 的 observed pattern，不視為永久資料契約。
+
+---
+
+### 9.4 Non-Rest All Numeric Fields Zero
+
+Pattern：
+
+```text
+upper_price  = 0
+middle_price = 0
+lower_price  = 0
+avg_price    = 0
+volume       = 0
+```
+
+目前共：
+
+```text
+46 rows
+0.26% of Non-Rest records
+```
+
+Targeted inspection 確認這 46 筆：
+
+```text
+category_code = N06
+```
+
+全部皆成立。
+
+市場分布：
+
+```text
+market_code = 700 / 台南市場: 38 rows
+market_code = 514 / 彰化市場:  3 rows
+market_code = 400 / 台中市場:  3 rows
+market_code = 105 / 台北市場:  1 row
+market_code = 800 / 高雄市場:  1 row
+```
+
+其中台南市場占：
+
+```text
+38 / 46 ≈ 82.6%
+```
+
+這些 records 並非只出現在單一日期或單一作物。
+
+目前觀察日期涵蓋：
+
+```text
+2026-08-03
+2026-08-04
+2026-08-05
+2026-08-06
+2026-08-07
+```
+
+且包含多個不同 `crop_code` / `crop_name`，例如玫瑰、洋桔梗、菊花、蘭花與進口花卉等。
+
+### Observation
+
+這 46 筆 records 具有明顯的 category / market concentration，且跨多個日期與作物重複出現，因此不能只依「數值全為 0」就判定為單筆偶發 corruption。
+
+同時，這些 records 的：
+
+```text
+crop_code != "rest"
+```
+
+因此仍不能把：
+
+```text
+all numeric fields = 0
+```
+
+當作 Rest 判定條件。
+
+目前來源資料本身不足以確認這類 Non-Rest All-Zero records 的實際 business meaning，例如是否代表沒有成交、沒有報價或其他市場狀態，因此不自行賦予未經證實的語意。
+
+### Current Decision
+
+目前：
+
+- 保留這 46 筆 records 與來源提供的 `0.0`。
+- 不因 Non-Rest All-Zero 就刪除、改寫或轉成 `NULL`。
+- 不將此 pattern 設為 Hard Fail。
+- 將 Non-Rest All-Zero 的 count / rate 視為後續 Warning / Monitoring 的候選品質訊號。
+
+這仍是 Data Quality Rule Freeze 前的候選定位，不代表 warning threshold 已正式定義。
+
+---
+
+### 9.5 Lower Price Only Zero
+
+Pattern：
+
+```text
+lower_price = 0
+
+upper_price  != 0
+middle_price != 0
+avg_price    != 0
+volume       != 0
+```
+
+目前共：
+
+```text
+6 rows
+0.03% of Non-Rest records
+```
+
+Targeted inspection 結果：
+
+```text
+category_code = N04: 6 / 6
+market_code   = 900: 6 / 6
+market_name   = 屏東市: 6 / 6
+```
+
+6 筆資料分布於不同日期與不同作物：
+
+| Trade Date | Crop Code | Crop Name | Upper | Middle | Lower | Avg | Volume |
+|---|---|---|---:|---:|---:|---:|---:|
+| 2026-08-05 | FM2 | 菜豆-青色 | 51.1 | 30.5 | 0.0 | 28.5 | 290.0 |
+| 2026-08-04 | LA92 | 甘藍-進口 改良種 | 0.7 | 0.1 | 0.0 | 0.1 | 720.0 |
+| 2026-08-02 | LI92 | 萵苣菜-進口 結球萵 | 13.2 | 6.1 | 0.0 | 6.1 | 658.0 |
+| 2026-08-02 | SA3 | 蘿蔔-矸仔 | 2.5 | 1.2 | 0.0 | 1.2 | 1335.0 |
+| 2026-08-02 | SD9 | 洋蔥-進口 | 6.7 | 5.0 | 0.0 | 4.4 | 240.0 |
+| 2026-08-01 | SG6 | 大蒜-蒜仁 | 20.0 | 12.4 | 0.0 | 11.4 | 84.0 |
+
+### Observation
+
+這 6 筆全部集中於同一個 category / market context，但跨不同日期與不同作物重複出現。
+
+同時，其他價格欄位與 `volume` 仍為正值，因此目前資料明確顯示：
+
+```text
+lower_price = 0
+```
+
+並不必然代表整筆交易紀錄無效。
+
+### Current Decision
+
+目前將 `lower_price = 0` only 視為 **Allowed observed pattern**：
+
+- 保留來源值。
+- 不改為 `NULL`。
+- 不刪除 record。
+- 不建立 `lower_price > 0` 的 Hard Fail Rule。
+
+是否需要額外 monitoring，可在 Data Quality Rule Freeze 階段再評估；目前沒有證據支持將每一筆 lower-price-only-zero 都視為 warning。
+
+---
+
+### 9.6 All Prices Zero With Positive Volume
+
+Pattern：
+
+```text
+upper_price  = 0
+middle_price = 0
+lower_price  = 0
+avg_price    = 0
+volume       > 0
+```
+
+目前共：
+
+```text
+2 rows
+0.01% of Non-Rest records
+```
+
+兩筆 targeted inspection 結果：
+
+| Trade Date | Category | Crop Code | Crop Name | Market Code | Market Name | Volume |
+|---|---|---|---|---|---|---:|
+| 2026-08-04 | N04 | FL2 | 豌豆-紅花 | 900 | 屏東市 | 8.0 |
+| 2026-08-02 | N04 | FL2 | 豌豆-紅花 | 900 | 屏東市 | 84.0 |
+
+兩筆 records 具有相同的：
+
+```text
+category_code = N04
+crop_code     = FL2
+crop_name     = 豌豆-紅花
+market_code   = 900
+market_name   = 屏東市
+```
+
+但發生於不同日期，且 `volume` 分別為 `8.0` 與 `84.0`。
+
+### Observation
+
+這個 pattern 在資料語意上值得注意，因為 record 同時表示：
+
+```text
+volume > 0
+```
+
+但四個價格欄位全部為 `0.0`。
+
+然而，同一 crop / market context 在不同日期重複出現相同 pattern，因此目前不能只根據直覺就宣告為 corrupted data。
+
+目前來源文件與 dataset 本身也不足以確認其實際 business meaning。
+
+### Current Decision
+
+目前：
+
+- 保留兩筆來源 records 與所有原始數值。
+- 不自行把價格改成 `NULL` 或其他推定值。
+- 不刪除 records。
+- 不將此 pattern 設為 Hard Fail。
+- 將 `all prices = 0` 且 `volume > 0` 視為後續 Warning candidate。
+
+實際 warning rule 與呈現方式留待 Data Quality Rule Freeze 階段正式定義。
+
+---
+
+### 9.7 Data Quality Boundary for Observed Zero Patterns
+
+本輪 Zero Pattern Profiling 進一步確認一個工程邊界：
+
+```text
+Data Quality detection
+!=
+source data modification
+```
+
+對來源中看起來特殊或可疑的數值狀態，Data Engineering pipeline 可以同時做到：
+
+```text
+保留 API 原始值
++
+產生品質訊號 / warning / monitoring metric
+```
+
+因此，觀察到特殊 Zero Pattern 不代表必須：
+
+```text
+刪除 record
+把 0 改成 NULL
+自行補值
+重新計算來源價格
+```
+
+在沒有官方定義或已確認 business rule 的情況下，這些處理反而可能改變來源資料語意與 lineage。
+
+### Current Decision
+
+目前 pipeline 的原則維持：
+
+- Raw layer 忠實保存 API response。
+- Transform 只做已定義的欄位與型別標準化，不因 zero pattern 自行改寫業務值。
+- Data Quality 可以偵測、統計、標記或告警特殊 pattern，但偵測本身不等於刪除或修正資料。
+- Hard Fail 應保留給有明確資料契約或工程必要性的 violation，而不是只因數值看起來異常。
+
+---
+
+### 9.8 Current Zero Pattern Decision
+
+目前 2026-08-01 至 2026-08-07 的 Non-Rest Zero Pattern Profiling 可以確認：
+
+1. 17,891 筆 Non-Rest records 中只觀察到 4 種 joint zero patterns。
+2. 17,837 筆（99.70%）五個數值欄位皆非零。
+3. 46 筆（0.26%）五個數值欄位全部為 zero；全部為 `N06`，其中 38 筆集中於台南市場。
+4. 6 筆（0.03%）只有 `lower_price = 0`；全部集中於 `N04 / market_code 900 / 屏東市`，且其他價格與交易量仍為正值。
+5. 2 筆（0.01%）四個價格皆為 zero 但 `volume > 0`；兩筆皆為 `N04 / FL2 / 豌豆-紅花 / market_code 900 / 屏東市`，並發生於不同日期。
+6. 目前沒有任何一種 Non-Rest Zero Pattern 有足夠證據應直接刪除、改值或設定為 Hard Fail。
+
+目前候選工程定位：
+
+| Pattern | Candidate Quality Treatment | Data Treatment |
+|---|---|---|
+| Non-Rest All Numeric Zero | Warning / Monitoring candidate | Preserve |
+| Lower Price Only Zero | Allowed observed pattern | Preserve |
+| All Prices Zero + Positive Volume | Warning candidate | Preserve |
+
+上述 quality treatment 尚屬 Data Quality Rule Freeze 前的候選分類；正式 rule、severity、輸出格式與 monitoring threshold 仍需在下一階段定義。
+
+Zero Pattern Profiling 到此完成。
 
 下一階段：
 
 ```text
-Zero Pattern Profiling
+Data Quality Rule Freeze
+→ Data Quality implementation
 ```
 
-完成 Zero Pattern 的正式 profiling 與 finding 後，再進入 Data Quality Rule 的收斂與實作。
