@@ -6,6 +6,9 @@ import logging
 from moa_agri_pipeline.extract.moa_api import fetch_all_pages
 from moa_agri_pipeline.load.metadata import save_extract_metadata
 from moa_agri_pipeline.load.raw_json import save_raw_json
+from moa_agri_pipeline.load.parquet import (
+    save_canonical_parquet,
+)
 from moa_agri_pipeline.quality.checks import validate_transformed_records
 from moa_agri_pipeline.quality.raw import validate_raw_records
 from moa_agri_pipeline.transform.agri_prices import transform_agri_prices
@@ -59,11 +62,23 @@ def main() -> None:
     print("\nData Quality：")
     print(f"檢查通過，共 {len(transformed_rows)} 筆")
 
+    # Load Canonical Parquet
+    snapshot_id = output_path.stem.removeprefix(
+        "agri_prices_"
+    )
+
+    canonical_path = save_canonical_parquet(
+        transformed_rows,
+        Path("data/processed"),
+        snapshot_id=snapshot_id,
+    )
+
     # Execution Summary
     print(f"\n查詢日期：{query_date}")
     print(f"總資料筆數：{len(rows)}")
     print(f"原始資料已保存：{output_path}")
     print(f"Metadata 已保存：{metadata_path}")
+    print(f"Canonical Parquet 已保存：{canonical_path}")
 
     if rows:
         print("\n第一筆 Raw Data：")
