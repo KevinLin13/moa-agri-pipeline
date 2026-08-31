@@ -65,7 +65,6 @@ CANONICAL_SCHEMA = pa.schema(
     ]
 )
 
-
 def save_canonical_parquet(
     records: list[dict[str, Any]],
     output_dir: Path,
@@ -96,3 +95,19 @@ def save_canonical_parquet(
     )
 
     return output_path
+
+def load_canonical_parquet(
+    input_path: Path,
+) -> list[dict[str, Any]]:
+    """讀取 canonical Parquet snapshot。"""
+
+    table = pq.read_table(input_path)
+
+    if not table.schema.equals(
+        CANONICAL_SCHEMA
+    ):
+        raise ValueError(
+            "Parquet schema 不符合 canonical schema"
+        )
+
+    return table.to_pylist()

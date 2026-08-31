@@ -5,6 +5,7 @@ import pyarrow.parquet as pq
 
 from moa_agri_pipeline.load.parquet import (
     CANONICAL_SCHEMA,
+    load_canonical_parquet,
     save_canonical_parquet,
 )
 
@@ -92,3 +93,18 @@ def test_save_canonical_parquet_allows_empty_records(
     assert table.column_names == (
         CANONICAL_SCHEMA.names
     )
+
+def test_load_canonical_parquet_returns_records(
+    tmp_path,
+):
+    output_path = save_canonical_parquet(
+        CANONICAL_RECORDS,
+        tmp_path,
+        snapshot_id="20260805T120000",
+    )
+
+    loaded_records = load_canonical_parquet(
+        output_path
+    )
+
+    assert loaded_records == CANONICAL_RECORDS

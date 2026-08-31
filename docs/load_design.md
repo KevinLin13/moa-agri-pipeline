@@ -283,14 +283,14 @@ Parquet snapshot 應保留不同 Extract 時點的狀態，以支援後續：
 ```text
 Snapshot Diff
 Source Update Investigation
-Load Reconciliation
+Monitoring
+Audit / Reconciliation
 ```
 
 ---
-
 ## 5. Validation Result
 
-Canonical Parquet Load 完成後執行：
+Canonical Parquet Load 與 Snapshot Diff 完成後執行：
 
 ```text
 pytest tests/test_parquet_load.py -v
@@ -299,7 +299,7 @@ pytest tests/test_parquet_load.py -v
 結果：
 
 ```text
-2 passed
+3 passed
 ```
 
 測試包含：
@@ -311,13 +311,54 @@ Canonical records
 → round trip comparison
 ```
 
-以及：
-
 ```text
 Empty records
 → write Parquet
 → preserve canonical schema
 ```
+
+以及：
+
+```text
+Canonical Parquet
+→ load_canonical_parquet()
+→ restore canonical records
+```
+
+Snapshot Diff 測試：
+
+```text
+pytest tests/test_snapshot_diff.py -v
+```
+
+結果：
+
+```text
+3 passed
+```
+
+測試包含：
+
+```text
+Inserted
+Changed
+Disappeared
+Unchanged
+```
+
+四種 snapshot change type。
+
+並驗證：
+
+```text
+Non-Rest Business Key
+(trade_date, crop_code, market_code)
+
+Rest Business Key
+(trade_date, category_code, market_code)
+```
+
+以及 duplicate Business Key protection。
 
 完整 test suite：
 
@@ -328,31 +369,36 @@ pytest -v
 結果：
 
 ```text
-47 passed
+51 passed
 ```
 
-代表新增 Parquet Load 沒有破壞既有：
+代表新增：
+
+```text
+Canonical Parquet Read
+Snapshot Diff
+Snapshot Comparison
+```
+
+沒有破壞既有：
 
 ```text
 Raw Validation
 Transform
 Profiling
 Data Quality
+Parquet Load
 ```
 
-相關測試。
+相關功能。
 
 ---
 
-## 6. Real API Validation
+## 6. Real Data Validation
 
-使用真實農業部 API 執行：
+### 6.1 Canonical Parquet Persistence
 
-```text
-python scripts/check_api.py
-```
-
-本次查詢：
+使用真實農業部 API 查詢：
 
 ```text
 trade_date = 2026-08-05
@@ -374,10 +420,10 @@ data/raw/agri_prices_20260831T075626_metadata.json
 data/processed/agri_prices_20260831T075626.parquet
 ```
 
-三個 output 使用相同 snapshot ID：
+Raw、Metadata 與 Canonical Parquet 使用相同：
 
 ```text
-20260831T075626
+snapshot_id = 20260831T075626
 ```
 
 ### Finding
@@ -393,63 +439,124 @@ data/processed/agri_prices_20260831T075626.parquet
 7. Raw、Metadata 與 Canonical Parquet 可以共用同一 snapshot ID。
 8. 真實 API 3,480 筆資料已成功完成 Canonical Parquet Load。
 
-### Current Decision
+---
+
+### 6.2 Snapshot Diff Integration Check
+
+使用同一份真實 Canonical Parquet：
 
 ```text
-Canonical Parquet Load v1
-→ COMPLETE
+agri_prices_20260831T075626.parquet
+vs
+agri_prices_20260831T075626.parquet
 ```
+
+執行 Snapshot Diff。
+
+結果：
+
+```text
+Earlier rows:    3480
+Later rows:      3480
+
+Inserted:        0
+Changed:         0
+Disappeared:     0
+Unchanged:       3480
+```
+
+### Finding
+
+目前已驗證完整路徑：
+
+```text
+Canonical Parquet
+→ load_canonical_parquet()
+→ Business Key indexing
+→ diff_snapshots()
+→ human-readable report
+```
+
+可以正確處理真實 canonical snapshot。
+
+同一份 snapshot 與自己比較時：
+
+```text
+Inserted = 0
+Changed = 0
+Disappeared = 0
+Unchanged = row_count
+```
+
+符合預期。
 
 ---
 
-## 7. Current Limitation
+### 6.3 Current-Date Snapshot Capture
 
-本次真實 Pipeline 的執行時間為：
-
-```text
-2026-08-31
-```
-
-但實際查詢的交易日期為：
+將 Pipeline 查詢日期改為執行當日後，於：
 
 ```text
-2026-08-05
+2026-08-31 10:12
 ```
 
-因此本次驗證只能證明：
+成功取得：
 
 ```text
-Canonical Parquet Persistence
-+
-Snapshot Lineage
+trade_date = 2026-08-31
+Rows = 26
 ```
 
-正常。
-
-目前尚不能由這次結果判斷同一交易日期在 API 不同更新時段之間是否會發生：
+並完成：
 
 ```text
-新增 Business Key
-修改既有 Business Key 的欄位
-移除先前存在的 Business Key
+Raw Validation: PASS
+Data Quality:   PASS
+Canonical Parquet: SAVED
 ```
 
-因此目前不能宣告：
+實際產生：
 
 ```text
-API intra-day update behavior
-→ 已確認
+data/raw/agri_prices_20260831T101205.json
+data/raw/agri_prices_20260831T101205_metadata.json
+data/processed/agri_prices_20260831T101205.parquet
 ```
+
+### Observation
+
+這次執行證明：
+
+```text
+正在更新中的 current trade_date
+```
+
+也可以完成完整的：
+
+```text
+Extract
+→ Validation
+→ Transform
+→ Data Quality
+→ Canonical Parquet Snapshot
+```
+
+流程。
+
+但單一 current-date snapshot 不能證明 API 的 intra-day update behavior。
+
+因此目前不將：
+
+```text
+Inserted / Changed / Disappeared
+```
+
+任一來源更新模式視為已確認的永久規則。
 
 ---
+## 7. Same-Day Snapshot Diff Design
 
-## 8. Pending Validation — Same-Day Snapshot Diff
-
-下一個 Load 工程問題為：
-
-> 同一個仍在更新中的 `trade_date`，在不同 API 更新時段之間，資料實際會如何變化？
-
-預計比較：
+Snapshot Diff 的目的為比較：
 
 ```text
 Earlier Snapshot
@@ -457,20 +564,16 @@ vs
 Later Snapshot
 ```
 
-並針對 Candidate Business Key 判斷：
+並將 record 分類為：
 
 ```text
-Inserted Keys
-→ 後一版新增的 Business Key
-
-Changed Keys
-→ 相同 Business Key，但其他欄位內容改變
-
-Disappeared Keys
-→ 前一版存在，但後一版不存在
+Inserted
+Changed
+Disappeared
+Unchanged
 ```
 
-目前 Candidate Business Key：
+Candidate Business Key 沿用 Data Quality v1：
 
 ```text
 Non-Rest
@@ -480,64 +583,278 @@ Rest
 (trade_date, category_code, market_code)
 ```
 
-### Why This Matters
-
-這項 finding 會直接影響 PostgreSQL Load Strategy。
-
-可能情況：
+實作時另外加入：
 
 ```text
-只新增
-→ INSERT / UPSERT 即可
+rest / non_rest
 ```
+
+類型標記，避免兩套 Business Key 在同一 index 中發生意義上的碰撞。
+
+若相同 Business Key 的 non-key 欄位發生變化：
 
 ```text
-新增 + 修改
-→ UPSERT
+Changed
 ```
+
+並記錄 field-level differences。
+
+例如：
 
 ```text
-新增 + 修改 + 消失
-→ 單純 UPSERT 可能不足
-→ 需要 reconciliation / partition replacement / other strategy
+avg_price
+20.0 → 25.0
+
+volume
+200.0 → 250.0
 ```
 
-因此在 Same-Day Snapshot Diff 完成以前，不先凍結 PostgreSQL Load Strategy。
+若 snapshot 內出現 duplicate Business Key：
+
+```text
+raise ValueError
+```
+
+而不是在建立 index 時靜默覆寫 record。
+
+### Finding
+
+Snapshot Diff 的功能完整性不需要等待真實 API 在某一天剛好出現所有 change type 才能驗證。
+
+目前 unit tests 已人工覆蓋：
+
+```text
+Inserted
+Changed
+Disappeared
+Unchanged
+```
+
+因此：
+
+```text
+API 某次實際只出現其中一部分狀況
+```
+
+不會限制程式對其他狀況的支援。
+
+### Current Decision
+
+Snapshot Diff 的角色定位為：
+
+```text
+Source Behavior Observation
+Reconciliation
+Monitoring
+Audit / Investigation
+```
+
+工具。
+
+Snapshot Diff **不是**正式 PostgreSQL Load 的必要前置步驟。
+
+因此：
+
+```text
+Source intra-day behavior profiling
+```
+
+可以持續累積多個 snapshots 後再分析，而不阻塞主要 Load 開發。
+
+單一日期或單一 snapshot pair 所觀察到的結果，不應被外推為 API 永久更新規則。
+
+---
+
+## 8. PostgreSQL Load Strategy
+
+正式 PostgreSQL canonical table 的目標狀態定義為：
+
+> 對每一個 `trade_date`，資料庫應反映最近一次完整取得、通過 Raw Validation、Transform 與 Data Quality 的 canonical snapshot。
+
+因此目前不採用：
+
+```text
+逐列 Snapshot Diff
+→ Inserted → INSERT
+→ Changed → UPDATE
+→ Disappeared → DELETE
+```
+
+作為主要 Load 機制。
+
+目前採用的 v1 方向為：
+
+```text
+Latest Valid Canonical Snapshot
+        ↓
+Database Transaction
+        ↓
+Replace target trade_date
+        ↓
+Commit
+```
+
+概念流程：
+
+```text
+完整取得 API
+↓
+Raw Validation PASS
+↓
+Transform
+↓
+Data Quality PASS
+↓
+Canonical snapshot ready
+↓
+BEGIN TRANSACTION
+↓
+DELETE target trade_date
+↓
+INSERT latest canonical snapshot
+↓
+COMMIT
+```
+
+若 Database Load 中途失敗：
+
+```text
+ROLLBACK
+```
+
+原本資料應維持不變。
+
+### Why Trade-Date Replacement
+
+此方式自然處理：
+
+```text
+Inserted
+Changed
+Disappeared
+Unchanged
+```
+
+而不需要逐列 reconciliation。
+
+例如：
+
+```text
+Earlier:
+A
+B
+C
+
+Latest:
+A
+B'
+D
+```
+
+replacement 後資料自然為：
+
+```text
+A
+B'
+D
+```
+
+因此：
+
+```text
+B → changed
+C → disappeared
+D → inserted
+```
+
+皆能反映最新 canonical snapshot。
+
+### Finding
+
+PostgreSQL Load 的正確性不需要依賴：
+
+```text
+先執行 Snapshot Diff
+→ 再依 change type 決定逐列 SQL
+```
+
+只要新的 canonical snapshot 已經完整取得且通過所有 validation，正式 Load 可以直接以最新 snapshot 取代目標 `trade_date` 的既有資料。
+
+這將：
+
+```text
+Source change observation
+```
+
+與：
+
+```text
+Database state synchronization
+```
+
+分離。
 
 ---
 
 ## 9. Idempotency Direction
 
-目前對 idempotency 的定義為：
+目前 idempotency 定義為：
 
-> 同一份來源狀態重跑多次，不應因重跑產生額外錯誤副作用；但當來源資料真的更新時，目標資料必須能正確反映新的來源狀態。
+> 同一份 validated canonical snapshot 重跑，不應造成額外 duplicate 或不正確副作用；來源真的發生更新時，資料庫則必須反映新的來源狀態。
 
 因此：
 
 ```text
 idempotency
 !=
-同一天第一次寫入後永遠不能修改
+第一次寫入後永遠不可修改
 ```
 
-較合理的未來行為可能是：
+對同一：
 
 ```text
-New Business Key
-→ INSERT
-
-Existing Business Key + changed values
-→ UPDATE
-
-Existing Business Key + same values
-→ no duplicate / no unintended side effect
+trade_date
 ```
 
-但這仍需等 Same-Day Snapshot Diff 確認來源更新模式後，再正式決定 PostgreSQL 實作方式。
+重跑完全相同 snapshot：
+
+```text
+replace old trade_date data
+→ insert same canonical state
+```
+
+最終資料庫狀態不變。
+
+因此 trade-date replacement 可以提供：
+
+```text
+state-level idempotency
+```
+
+正式實作仍需透過 PostgreSQL transaction 測試：
+
+```text
+成功 → COMMIT
+失敗 → ROLLBACK
+```
+
+### Current Decision
+
+Load 階段優先確保：
+
+```text
+Latest Valid Source State
+=
+Current Database State for that trade_date
+```
+
+而不是優先追求逐列最小修改。
+
+在目前每日資料量僅數千筆的情境下，trade-date replacement 的設計較簡單、容易驗證，也能自然處理來源 record 的新增、修改與消失。
 
 ---
 
-## 10. Next Stage
+## 10. Current Stage
 
 目前 Load 階段進度：
 
@@ -545,29 +862,40 @@ Existing Business Key + same values
 Canonical Parquet Snapshot Load
 ✅ COMPLETE
 
-Same-Day Snapshot Diff
-→ NEXT
+Canonical Parquet Read
+✅ COMPLETE
+
+Snapshot Diff Core
+✅ COMPLETE
+
+Snapshot Diff Integration Check
+✅ COMPLETE
+
+Source Intra-Day Behavior Observation
+→ ONGOING / NON-BLOCKING
 
 PostgreSQL Schema
+→ NEXT
+
+PostgreSQL Trade-Date Replacement Load
 → PENDING
 
-PostgreSQL Load
-→ PENDING
-
-Upsert / Reconciliation
+Transaction / Rollback Validation
 → PENDING
 
 Idempotency Validation
 → PENDING
 ```
 
-下一個最小充分任務：
+下一個主要工程問題為：
 
-> 使用同一個正在更新中的 `trade_date`，保存至少兩個不同時間點的 snapshot，並比較 Inserted / Changed / Disappeared Business Keys。
+> PostgreSQL canonical table 應如何設計 schema，才能正確保存目前 11 欄 canonical record，並支援以 `trade_date` 為單位的 atomic replacement？
 
-在完成上述驗證前：
+Source intra-day behavior 可透過不同時間點保存的 Parquet snapshots 持續觀察，但不再作為 PostgreSQL Load 開發的 blocking prerequisite。
 
-- 不先決定 PostgreSQL 是純 INSERT、UPSERT 或 partition replacement。
-- 不把來源更新行為寫成已確認 finding。
+在 PostgreSQL Schema 完成前：
+
 - 不改變既有 Data Quality v1 規則。
-- 不刪除或覆寫不同時點的 Raw / Canonical snapshots。
+- 不刪除不同時點保存的 Raw / Canonical snapshots。
+- 不把單一 snapshot pair 的結果外推為永久 API 更新規則。
+- Snapshot Diff 繼續保留為 observation / monitoring / audit 工具。

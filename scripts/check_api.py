@@ -20,7 +20,7 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    query_date = date(2026, 8, 5)
+    query_date = date.today()
 
     # Extract
     rows = fetch_all_pages(
