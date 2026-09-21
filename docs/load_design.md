@@ -297,7 +297,6 @@ pytest tests/test_parquet_load.py -v
 ```
 
 結果：
-
 ```text
 3 passed
 ```
@@ -598,7 +597,6 @@ Changed
 ```
 
 並記錄 field-level differences。
-
 例如：
 
 ```text
@@ -884,6 +882,9 @@ Transaction / Rollback Validation
 ✅ COMPLETE
 
 Idempotency Validation
+✅ COMPLETE
+
+PostgreSQL Pipeline Integration
 → NEXT
 ```
 
@@ -897,8 +898,7 @@ agri_prices
 
 目前 schema 對應既有 11 欄 canonical contract：
 
-```text
-trade_date      DATE              NOT NULL
+```texttrade_date      DATE              NOT NULL
 category_code   TEXT              NULLABLE
 crop_code       TEXT              NOT NULL
 crop_name       TEXT              NULLABLE
@@ -1189,14 +1189,91 @@ Transaction / Rollback Validation
 
 目前皆視為完成。
 
+### Idempotency Validation Result
+
+已在真實 PostgreSQL integration test 中，對同一個：
+
+```text
+trade_date
+```
+
+與同一份：
+
+```text
+validated canonical snapshot
+```
+
+連續執行兩次：
+
+```text
+replace_trade_date_records()
+```
+
+驗證流程：
+
+```text
+第一次 replacement
+↓
+取得 database state A
+↓
+第二次 replacement
+↓
+取得 database state B
+↓
+A == B
+```
+
+結果確認：
+
+```text
+同一份 snapshot 重複 Load
+→ row count 不增加
+→ 不產生 duplicate
+→ record 內容不改變
+→ 最終 database state 完全一致
+```
+
+PostgreSQL integration tests：
+
+```text
+pytest tests/integration/test_postgres_load_integration.py -v
+```
+
+結果：
+
+```text
+3 passed
+```
+
+完整 Python test suite：
+
+```text
+pytest -v
+```
+
+結果：
+
+```text
+57 passed
+```
+
+因此目前可以確認：
+
+```text
+Trade-Date Replacement Load
+→ 具備 state-level idempotency
+```
+
+`Idempotency Validation` 視為完成。
+
 下一個主要工程問題改為：
 
-> 對同一個 `trade_date` 與同一份 validated canonical snapshot 重複執行 replacement 時，資料庫最終狀態是否完全一致，且不產生 duplicate 或其他不正確副作用？
+> 如何把已驗證完成的 PostgreSQL Trade-Date Replacement Load 接入實際 Pipeline，使通過 Raw Validation、Transform 與 Data Quality 的 canonical records 能在正式執行流程中同步寫入 PostgreSQL？
 
 也就是進入：
 
 ```text
-Idempotency Validation
+PostgreSQL Pipeline Integration
 ```
 
-Source intra-day behavior 可繼續透過不同時間點保存的 Parquet snapshots 觀察，但仍為 non-blocking，不影響 Idempotency Validation 的進行。
+Source intra-day behavior 可繼續透過不同時間點保存的 Parquet snapshots 觀察，但仍為 non-blocking，不影響 PostgreSQL Pipeline Integration 的進行。

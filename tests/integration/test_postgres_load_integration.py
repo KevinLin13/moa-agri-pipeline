@@ -184,3 +184,76 @@ def test_replace_trade_date_records_rolls_back_on_failure(
             100.0,
         )
     ]
+
+def test_replace_trade_date_records_is_idempotent(
+    connection,
+):
+    first_result = replace_trade_date_records(
+        connection,
+        TEST_DATE,
+        [NEW_RECORD],
+    )
+
+    rows_after_first_load = connection.execute(
+        """
+        SELECT
+            category_code,
+            crop_code,
+            crop_name,
+            market_code,
+            market_name,
+            upper_price,
+            middle_price,
+            lower_price,
+            avg_price,
+            volume
+        FROM agri_prices
+        WHERE trade_date = %s
+        """,
+        (TEST_DATE,),
+    ).fetchall()
+
+    second_result = replace_trade_date_records(
+        connection,
+        TEST_DATE,
+        [NEW_RECORD],
+    )
+
+    rows_after_second_load = connection.execute(
+        """
+        SELECT
+            category_code,
+            crop_code,
+            crop_name,
+            market_code,
+            market_name,
+            upper_price,
+            middle_price,
+            lower_price,
+            avg_price,
+            volume
+        FROM agri_prices
+        WHERE trade_date = %s
+        """,
+        (TEST_DATE,),
+    ).fetchall()
+
+    assert first_result == 1
+    assert second_result == 1
+
+    assert rows_after_second_load == rows_after_first_load
+
+    assert rows_after_second_load == [
+        (
+            "N05",
+            "TEST001",
+            "更新後作物",
+            "M001",
+            "更新後市場",
+            20.0,
+            18.0,
+            16.0,
+            18.0,
+            200.0,
+        )
+    ]
