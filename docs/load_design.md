@@ -878,13 +878,13 @@ PostgreSQL Schema
 ✅ COMPLETE
 
 PostgreSQL Trade-Date Replacement Load
-→ NEXT
+✅ COMPLETE
 
 Transaction / Rollback Validation
-→ PENDING
+✅ COMPLETE
 
 Idempotency Validation
-→ PENDING
+→ NEXT
 ```
 
 ### PostgreSQL Schema Validation Result
@@ -988,19 +988,215 @@ python -m pytest -v
 51 passed
 ```
 
+### PostgreSQL Trade-Date Replacement Load Validation Result
+
+已新增 PostgreSQL canonical load boundary：
+
+```text
+src/moa_agri_pipeline/load/postgres.py
+```
+
+核心行為為：
+
+```text
+replace_trade_date_records(
+    connection,
+    trade_date,
+    records,
+)
+```
+
+執行流程：
+
+```text
+Validate all record trade_date
+↓
+BEGIN TRANSACTION
+↓
+DELETE target trade_date
+↓
+INSERT latest canonical records
+↓
+COMMIT
+```
+
+若傳入 record 的 `trade_date` 與 target `trade_date` 不一致：
+
+```text
+raise ValueError
+```
+
+而且 validation 發生在 database transaction 開始前，因此不會先刪除既有資料。
+
+若 validated canonical snapshot 為空：
+
+```text
+records = []
+```
+
+仍允許執行：
+
+```text
+DELETE target trade_date
+→ INSERT 0 rows
+→ COMMIT
+```
+
+使 database state 能反映最新完整 snapshot 為空的情況。
+
+Unit tests：
+
+```text
+pytest tests/test_postgres_load.py -v
+```
+
+結果：
+
+```text
+3 passed
+```
+
+測試涵蓋：
+
+```text
+Mixed trade_date
+→ rejected before transaction
+
+Non-empty snapshot
+→ DELETE + INSERT
+
+Empty snapshot
+→ DELETE + INSERT 0 rows
+```
+
+另外新增真實 PostgreSQL integration tests：
+
+```text
+tests/integration/test_postgres_load_integration.py
+```
+
+使用：
+
+```text
+localhost:5432
+database = moa_agri
+table = public.agri_prices
+```
+
+驗證正常 replacement：
+
+```text
+Old record
+↓
+DELETE
+↓
+INSERT latest record
+↓
+COMMIT
+↓
+Latest record remains
+```
+
+以及 transaction rollback：
+
+```text
+Old record exists
+↓
+DELETE old record
+↓
+INSERT first new record
+↓
+INSERT duplicate Business Key
+↓
+UniqueViolation
+↓
+ROLLBACK
+↓
+Old record remains unchanged
+```
+
+Integration tests：
+
+```text
+pytest tests/integration/test_postgres_load_integration.py -v
+```
+
+結果：
+
+```text
+2 passed
+```
+
+完整 Python test suite：
+
+```text
+pytest -v
+```
+
+結果：
+
+```text
+56 passed
+```
+
+代表新增 PostgreSQL unit / integration tests 後，既有：
+
+```text
+Raw Validation
+Transform
+Profiling
+Data Quality
+Parquet Load
+Snapshot Diff
+PostgreSQL Schema
+```
+
+相關功能沒有 regression。
+
+Integration test 使用測試日期：
+
+```text
+trade_date = 2099-01-02
+```
+
+測試完成後再次確認：
+
+```text
+COUNT(*) = 0
+```
+
+因此 PostgreSQL integration tests 未留下測試資料。
+
 ### Current Decision
 
-PostgreSQL Schema v1 已能保存目前 11 欄 canonical records，並在 database layer 維持目前 Data Quality v1 / Business Key 的核心 constraint。
+PostgreSQL Trade-Date Replacement Load v1 已完成，並以真實 PostgreSQL 驗證：
+
+```text
+成功 replacement
+→ COMMIT
+
+Load 中途發生 database constraint error
+→ ROLLBACK
+→ 原本資料維持不變
+```
+
+因此：
+
+```text
+PostgreSQL Trade-Date Replacement Load
+Transaction / Rollback Validation
+```
+
+目前皆視為完成。
 
 下一個主要工程問題改為：
 
-> PostgreSQL Trade-Date Replacement Load 應如何實作，才能在單一 transaction 中刪除目標 `trade_date` 的既有資料、寫入最新 validated canonical snapshot，並為後續 rollback / idempotency validation 提供可測試的 load boundary？
+> 對同一個 `trade_date` 與同一份 validated canonical snapshot 重複執行 replacement 時，資料庫最終狀態是否完全一致，且不產生 duplicate 或其他不正確副作用？
 
-Source intra-day behavior 可透過不同時間點保存的 Parquet snapshots 持續觀察，但不再作為 PostgreSQL Load 開發的 blocking prerequisite。
+也就是進入：
 
-進入 PostgreSQL Trade-Date Replacement Load 前：
+```text
+Idempotency Validation
+```
 
-- 不改變既有 Data Quality v1 規則。
-- 不刪除不同時點保存的 Raw / Canonical snapshots。
-- 不把單一 snapshot pair 的結果外推為永久 API 更新規則。
-- Snapshot Diff 繼續保留為 observation / monitoring / audit 工具。
+Source intra-day behavior 可繼續透過不同時間點保存的 Parquet snapshots 觀察，但仍為 non-blocking，不影響 Idempotency Validation 的進行。
