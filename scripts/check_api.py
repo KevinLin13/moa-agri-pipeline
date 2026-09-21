@@ -1,3 +1,5 @@
+import psycopg
+
 from datetime import date
 from pathlib import Path
 
@@ -8,6 +10,9 @@ from moa_agri_pipeline.load.metadata import save_extract_metadata
 from moa_agri_pipeline.load.raw_json import save_raw_json
 from moa_agri_pipeline.load.parquet import (
     save_canonical_parquet,
+)
+from moa_agri_pipeline.load.postgres import (
+    replace_trade_date_records,
 )
 from moa_agri_pipeline.quality.checks import validate_transformed_records
 from moa_agri_pipeline.quality.raw import validate_raw_records
@@ -71,6 +76,22 @@ def main() -> None:
         transformed_rows,
         Path("data/processed"),
         snapshot_id=snapshot_id,
+    )
+
+    # Load PostgreSQL
+    with psycopg.connect(
+        autocommit=True,
+    ) as connection:
+        postgres_row_count = replace_trade_date_records(
+            connection,
+            query_date,
+            transformed_rows,
+        )
+
+    print("\nPostgreSQL Load：")
+    print(
+        f"Trade-Date Replacement 完成，共寫入 "
+        f"{postgres_row_count} 筆"
     )
 
     # Execution Summary

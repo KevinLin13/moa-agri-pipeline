@@ -885,6 +885,9 @@ Idempotency Validation
 ✅ COMPLETE
 
 PostgreSQL Pipeline Integration
+✅ COMPLETE
+
+Pipeline Orchestration / Runtime Configuration
 → NEXT
 ```
 
@@ -1266,14 +1269,123 @@ Trade-Date Replacement Load
 
 `Idempotency Validation` 視為完成。
 
+### PostgreSQL Pipeline Integration Validation Result
+
+已將 PostgreSQL Trade-Date Replacement Load 正式接入目前的執行流程：
+
+```text
+scripts/check_api.py
+```
+
+目前流程已可完成：
+
+```text
+Extract
+↓
+Save Raw JSON / Metadata
+↓
+Raw Validation
+↓
+Transform
+↓
+Data Quality
+↓
+Canonical Parquet
+↓
+PostgreSQL Trade-Date Replacement
+```
+
+使用真實農業部 API 執行：
+
+```text
+trade_date = 2026-09-21
+```
+
+結果：
+
+```text
+API rows:        451
+Raw Validation:  PASS
+Data Quality:    PASS
+PostgreSQL Load: 451 rows
+```
+
+本次執行產生：
+
+```text
+data/raw/agri_prices_20260921T155941.json
+data/raw/agri_prices_20260921T155941_metadata.json
+data/processed/agri_prices_20260921T155941.parquet
+```
+
+並直接查詢 PostgreSQL：
+
+```text
+localhost:5432
+database = moa_agri
+table = public.agri_prices
+```
+
+執行：
+
+```sql
+SELECT COUNT(*)
+FROM agri_prices
+WHERE trade_date = '2026-09-21';
+```
+
+結果：
+
+```text
+451
+```
+
+另外查詢：
+
+```sql
+SELECT *
+FROM agri_prices
+WHERE trade_date = '2026-09-21'
+LIMIT 10;
+```
+
+已確認實際 canonical records 正確存在於 PostgreSQL，包括 Rest 與 Non-Rest records。
+
+完整 Python test suite：
+
+```text
+pytest -v
+```
+
+結果：
+
+```text
+57 passed
+```
+
+因此目前可以確認：
+
+```text
+農業部 API
+→ Raw Validation
+→ Transform
+→ Data Quality
+→ Canonical Parquet
+→ PostgreSQL Trade-Date Replacement
+```
+
+完整 end-to-end 路徑已以真實資料驗證成功。
+
+`PostgreSQL Pipeline Integration` 視為完成。
+
 下一個主要工程問題改為：
 
-> 如何把已驗證完成的 PostgreSQL Trade-Date Replacement Load 接入實際 Pipeline，使通過 Raw Validation、Transform 與 Data Quality 的 canonical records 能在正式執行流程中同步寫入 PostgreSQL？
+> 如何將目前已驗證的執行流程整理成可重複使用、可配置的正式 Pipeline entrypoint，而不是持續由開發驗證用途的 `scripts/check_api.py` 承擔整體 orchestration？
 
 也就是進入：
 
 ```text
-PostgreSQL Pipeline Integration
+Pipeline Orchestration / Runtime Configuration
 ```
 
-Source intra-day behavior 可繼續透過不同時間點保存的 Parquet snapshots 觀察，但仍為 non-blocking，不影響 PostgreSQL Pipeline Integration 的進行。
+Source intra-day behavior 可繼續透過不同時間點保存的 Parquet snapshots 觀察，但仍為 non-blocking，不影響後續 Pipeline orchestration 的進行。
