@@ -875,10 +875,10 @@ Source Intra-Day Behavior Observation
 → ONGOING / NON-BLOCKING
 
 PostgreSQL Schema
-→ NEXT
+✅ COMPLETE
 
 PostgreSQL Trade-Date Replacement Load
-→ PENDING
+→ NEXT
 
 Transaction / Rollback Validation
 → PENDING
@@ -887,13 +887,118 @@ Idempotency Validation
 → PENDING
 ```
 
-下一個主要工程問題為：
+### PostgreSQL Schema Validation Result
 
-> PostgreSQL canonical table 應如何設計 schema，才能正確保存目前 11 欄 canonical record，並支援以 `trade_date` 為單位的 atomic replacement？
+已建立 PostgreSQL canonical table：
+
+```text
+agri_prices
+```
+
+目前 schema 對應既有 11 欄 canonical contract：
+
+```text
+trade_date      DATE              NOT NULL
+category_code   TEXT              NULLABLE
+crop_code       TEXT              NOT NULL
+crop_name       TEXT              NULLABLE
+market_code     TEXT              NOT NULL
+market_name     TEXT              NOT NULL
+upper_price     DOUBLE PRECISION  NOT NULL
+middle_price    DOUBLE PRECISION  NOT NULL
+lower_price     DOUBLE PRECISION  NOT NULL
+avg_price       DOUBLE PRECISION  NOT NULL
+volume          DOUBLE PRECISION  NOT NULL
+```
+
+Business Key constraint 以 PostgreSQL partial unique index 實作：
+
+```text
+Non-Rest
+(trade_date, crop_code, market_code)
+WHERE crop_code <> 'rest'
+```
+
+```text
+Rest
+(trade_date, category_code, market_code)
+WHERE crop_code = 'rest'
+```
+
+另外加入：
+
+```text
+Rest category_code
+→ category_code IS NOT NULL
+```
+
+以及五個數值欄位：
+
+```text
+value >= 0
+```
+
+的 database-level CHECK constraint。
+
+實際 PostgreSQL constraint test 已驗證：
+
+```text
+Non-Rest duplicate
+→ rejected
+
+Rest duplicate
+→ rejected
+
+Rest category_code = NULL
+→ rejected
+
+Negative numeric value
+→ rejected
+```
+
+測試使用 transaction 執行，最後：
+
+```text
+ROLLBACK
+```
+
+並再次確認測試日期：
+
+```text
+trade_date = 2099-01-01
+```
+
+在 `agri_prices` 中：
+
+```text
+COUNT(*) = 0
+```
+
+因此本次 schema constraint 測試未留下測試資料。
+
+本階段開始前亦重新執行完整 Python test suite：
+
+```text
+python -m pytest -v
+```
+
+結果：
+
+```text
+51 passed
+```
+
+### Current Decision
+
+PostgreSQL Schema v1 已能保存目前 11 欄 canonical records，並在 database layer 維持目前 Data Quality v1 / Business Key 的核心 constraint。
+
+下一個主要工程問題改為：
+
+> PostgreSQL Trade-Date Replacement Load 應如何實作，才能在單一 transaction 中刪除目標 `trade_date` 的既有資料、寫入最新 validated canonical snapshot，並為後續 rollback / idempotency validation 提供可測試的 load boundary？
 
 Source intra-day behavior 可透過不同時間點保存的 Parquet snapshots 持續觀察，但不再作為 PostgreSQL Load 開發的 blocking prerequisite。
 
-在 PostgreSQL Schema 完成前：
+進入 PostgreSQL Trade-Date Replacement Load 前：
 
 - 不改變既有 Data Quality v1 規則。
 - 不刪除不同時點保存的 Raw / Canonical snapshots。
