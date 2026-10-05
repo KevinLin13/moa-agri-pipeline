@@ -1474,3 +1474,379 @@ Runtime Configuration / Runtime Entry Point
 ```
 
 Source intra-day behavior 可繼續透過不同時間點保存的 Parquet snapshots 觀察，但仍為 non-blocking，不影響後續 Runtime Configuration / Runtime Entry Point 的進行。
+
+---
+
+## 11. Runtime Entry Point v1 Validation Result
+
+本節記錄 `Pipeline Orchestration` 完成後，正式 Runtime Entry Point v1 的實作與驗證結果。
+
+本節為目前最新進度；前述 `Runtime Configuration / Runtime Entry Point → NEXT` 為當時的階段狀態，現已由本節更新。
+
+### Runtime Entry Point v1
+
+已新增正式執行入口：
+
+```text
+scripts/run_daily.py
+```
+
+其責任限定為：
+
+```text
+Parse runtime arguments
+↓
+建立 PostgreSQL connection
+↓
+呼叫既有 run_pipeline()
+↓
+輸出 PipelineRunResult 摘要
+```
+
+目前執行方式：
+
+```powershell
+python scripts/run_daily.py --date 2026-09-21
+```
+
+其中：
+
+```text
+--date
+→ required
+→ 解析為 datetime.date
+```
+
+正式 Runtime Entry Point 不重新實作：
+
+```text
+Extract
+Raw Validation
+Transform
+Data Quality
+Canonical Parquet
+PostgreSQL Load
+```
+
+上述 Pipeline stages 仍統一由：
+
+```text
+src/moa_agri_pipeline/pipeline.py
+→ run_pipeline()
+```
+
+負責 orchestration。
+
+因此正式 runtime path 為：
+
+```text
+PowerShell / CLI
+↓
+scripts/run_daily.py
+↓
+psycopg.connect()
+↓
+run_pipeline()
+↓
+Extract
+↓
+Save Raw JSON / Metadata
+↓
+Raw Validation
+↓
+Transform
+↓
+Data Quality
+↓
+Canonical Parquet
+↓
+PostgreSQL Trade-Date Replacement
+```
+
+### Runtime Configuration v1 Decision
+
+Runtime Entry Point v1 不另外建立自訂 `config.py` 重新解析 PostgreSQL 連線參數。
+
+目前使用：
+
+```python
+psycopg.connect(
+    autocommit=True,
+)
+```
+
+並將 PostgreSQL connection configuration 交由：
+
+```text
+psycopg
+↓
+libpq
+↓
+PostgreSQL standard runtime configuration
+```
+
+處理。
+
+因此：
+
+```text
+PGHOST
+PGPORT
+PGDATABASE
+PGUSER
+password source
+```
+
+不硬寫於 Python source code。
+
+目前 v1 不新增額外 dotenv / configuration dependency，也不將 PostgreSQL 密碼寫入：
+
+```text
+Python
+Git
+CLI argument
+```
+
+`run_pipeline()` 本身仍只接收已建立完成的：
+
+```text
+connection
+```
+
+而不直接處理 PostgreSQL credential。
+
+### Runtime Entry Point Unit Tests
+
+已新增：
+
+```text
+tests/test_run_daily.py
+```
+
+執行：
+
+```text
+pytest tests/test_run_daily.py -v
+```
+
+結果：
+
+```text
+4 passed
+```
+
+測試涵蓋：
+
+```text
+parse_date()
+→ valid ISO date accepted
+
+parse_date()
+→ invalid date format rejected
+
+parse_args()
+→ --date correctly converted to datetime.date
+
+main()
+→ psycopg.connect() called
+→ run_pipeline() called
+→ query_date / connection correctly passed
+→ PipelineRunResult summary printed
+```
+
+`main()` 測試使用 mock，因此：
+
+```text
+不呼叫真實農業部 API
+不修改真實 PostgreSQL
+```
+
+### Full Regression Test
+
+完成 Runtime Entry Point v1 後執行：
+
+```text
+pytest -v
+```
+
+結果：
+
+```text
+62 collected
+59 passed
+3 skipped
+```
+
+其中 3 個 skipped tests 為既有：
+
+```text
+tests/integration/test_postgres_load_integration.py
+```
+
+因未設定：
+
+```text
+RUN_POSTGRES_INTEGRATION=1
+```
+
+而依既有設計跳過。
+
+本次新增的 4 個 Runtime Entry Point tests 全數通過，且既有：
+
+```text
+Raw Validation
+Transform
+Profiling
+Data Quality
+Parquet Load
+Snapshot Diff
+PostgreSQL Load
+Pipeline Orchestration
+```
+
+相關測試均無 regression。
+
+### Real Runtime End-to-End Validation
+
+使用正式 Runtime Entry Point 與真實 PostgreSQL 執行：
+
+```powershell
+python scripts/run_daily.py --date 2026-09-21
+```
+
+結果：
+
+```text
+查詢日期：2026-09-21
+Raw rows：1527
+Transformed rows：1527
+PostgreSQL rows：1527
+Raw：data\raw\agri_prices_20261005T094044.json
+Metadata：data\raw\agri_prices_20261005T094044_metadata.json
+Canonical：data\processed\agri_prices_20261005T094044.parquet
+```
+
+因此已透過正式 Runtime Entry Point 驗證：
+
+```text
+CLI argument
+↓
+PostgreSQL connection
+↓
+run_pipeline()
+↓
+Agriculture API
+↓
+Raw / Metadata persistence
+↓
+Raw Validation
+↓
+Transform
+↓
+Data Quality
+↓
+Canonical Parquet
+↓
+PostgreSQL Trade-Date Replacement
+```
+
+完整 end-to-end path 成功。
+
+本次執行三層 row count 一致：
+
+```text
+Raw rows          = 1527
+Transformed rows  = 1527
+PostgreSQL rows   = 1527
+```
+
+並直接查詢 PostgreSQL：
+
+```sql
+SELECT COUNT(*)
+FROM agri_prices
+WHERE trade_date = '2026-09-21';
+```
+
+已確認實際 database row count 與本次 Runtime Entry Point 輸出一致。
+
+### Same-Date Runtime Re-run Validation
+
+在第一次 Runtime Entry Point 寫入完成後，再次以相同：
+
+```text
+trade_date = 2026-09-21
+```
+
+執行：
+
+```powershell
+python scripts/run_daily.py --date 2026-09-21
+```
+
+第二次執行成功。
+
+重新查詢 PostgreSQL 後，確認：
+
+```text
+同一 trade_date 重跑
+→ 不累積 duplicate rows
+→ database state 仍反映最新完整 snapshot
+```
+
+因此既有：
+
+```text
+Trade-Date Replacement
+→ state-level idempotency
+```
+
+在正式 Runtime Entry Point 路徑下亦已完成真實驗證。
+
+### Current Decision
+
+目前可確認：
+
+```text
+Pipeline Orchestration
+✅ COMPLETE
+
+Runtime Configuration v1
+✅ VALIDATED
+
+Runtime Entry Point v1
+✅ COMPLETE
+```
+
+`scripts/check_api.py` 繼續保留作為：
+
+```text
+Development
+Learning
+Manual stage-by-stage verification
+```
+
+用途。
+
+正式日常 runtime execution 則改由：
+
+```text
+scripts/run_daily.py
+```
+
+作為入口。
+
+目前 Runtime Entry Point v1 已具備：
+
+```text
+Explicit trade date
+PostgreSQL runtime connection
+Existing pipeline orchestration reuse
+Runtime summary output
+Unit test coverage
+Full regression coverage
+Real API + PostgreSQL end-to-end validation
+Same-date re-run validation
+```
+
+下一步應先建立本階段 checkpoint，再討論後續 runtime operationalization，例如排程、自動化執行、logging / observability 或其他 production runtime concerns；不在本階段直接擴張功能範圍。
