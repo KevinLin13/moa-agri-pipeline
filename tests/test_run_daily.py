@@ -122,3 +122,43 @@ def test_main_connects_and_runs_pipeline(monkeypatch, capsys):
     assert "Raw rows：10" in output
     assert "Transformed rows：10" in output
     assert "PostgreSQL rows：10" in output
+
+def test_parse_args_exits_with_code_2_when_date_is_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run_daily.py"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_daily.parse_args()
+
+    assert exc_info.value.code == 2
+
+
+def test_main_propagates_connection_error(monkeypatch):
+    def fake_connect(*, autocommit):
+        assert autocommit is True
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_daily.py",
+            "--date",
+            "2026-10-05",
+        ],
+    )
+
+    monkeypatch.setattr(
+        run_daily.psycopg,
+        "connect",
+        fake_connect,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="database unavailable",
+    ):
+        run_daily.main()

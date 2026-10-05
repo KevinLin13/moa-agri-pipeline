@@ -1850,3 +1850,291 @@ Same-date re-run validation
 ```
 
 下一步應先建立本階段 checkpoint，再討論後續 runtime operationalization，例如排程、自動化執行、logging / observability 或其他 production runtime concerns；不在本階段直接擴張功能範圍。
+
+---
+
+## 12. Runtime Failure Handling v1 Validation Result
+
+本節記錄 Runtime Entry Point v1 完成後，針對正式 CLI 執行成功、CLI 使用錯誤與 Runtime exception 的實際行為驗證。
+
+本階段以「先驗證 Python / argparse 既有行為，再決定是否需要新增 exception handling」為原則；驗證結果顯示目前既有行為已足以形成 Runtime Failure Handling v1，因此本階段不修改 `scripts/run_daily.py`。
+
+### Runtime Exit Contract v1
+
+目前已實際確認以下 process exit behavior：
+
+```text
+Successful execution
+→ exit code 0
+
+Unhandled runtime exception
+→ exit code 1
+
+CLI usage error
+→ exit code 2
+```
+
+### Successful Execution Validation
+
+使用正式 Runtime Entry Point 執行：
+
+```powershell
+python scripts/run_daily.py --date 2026-10-05
+```
+
+結果：
+
+```text
+查詢日期：2026-10-05
+Raw rows：497
+Transformed rows：497
+PostgreSQL rows：497
+Raw：data\raw\agri_prices_20261005T111025.json
+Metadata：data\raw\agri_prices_20261005T111025_metadata.json
+Canonical：data\processed\agri_prices_20261005T111025.parquet
+```
+
+並確認：
+
+```text
+Exit code: 0
+```
+
+因此正式 Runtime Entry Point 在完整 Pipeline 成功時會正常以 exit code `0` 結束。
+
+### Runtime Exception Validation
+
+為避免修改正式 credential 或 `pgpass.conf`，僅在目前 PowerShell session 暫時將：
+
+```text
+PGDATABASE
+```
+
+改為不存在的 database：
+
+```text
+__invalid_moa_agri__
+```
+
+再執行正式 Runtime Entry Point。
+
+PostgreSQL connection 失敗後產生：
+
+```text
+psycopg.OperationalError
+```
+
+並保留完整 Python traceback。
+
+實際確認：
+
+```text
+Exit code: 1
+```
+
+且錯誤輸出包含：
+
+```text
+host
+port
+database name
+exception type
+failure reason
+```
+
+本次輸出未顯示 PostgreSQL password。
+
+測試後 `PGDATABASE` 已恢復為：
+
+```text
+moa_agri
+```
+
+因此目前 Runtime exception 採用 fail-fast behavior：
+
+```text
+Runtime exception
+→ 不由 run_daily.py 廣泛捕捉
+→ exception / traceback 保留
+→ process 以 non-zero exit code 結束
+```
+
+目前不新增：
+
+```python
+except Exception:
+```
+
+或自訂錯誤包裝層，以避免在沒有明確需求時隱藏原始 traceback。
+
+### CLI Usage Error Validation
+
+執行：
+
+```powershell
+python scripts/run_daily.py --abc
+```
+
+因 `--date` 為 required argument，`argparse` 在進入 Pipeline 前直接拒絕此次 CLI invocation。
+
+實際輸出：
+
+```text
+usage: run_daily.py [-h] --date DATE
+run_daily.py: error: the following arguments are required: --date
+```
+
+並確認：
+
+```text
+Exit code: 2
+```
+
+因此 CLI usage error 可與 Runtime exception 使用不同 exit code 區分。
+
+### Runtime Failure Handling Tests
+
+在既有：
+
+```text
+tests/test_run_daily.py
+```
+
+新增兩個 regression tests：
+
+```text
+test_parse_args_exits_with_code_2_when_date_is_missing
+test_main_propagates_connection_error
+```
+
+第一個測試確認：
+
+```text
+missing required --date
+→ argparse
+→ SystemExit
+→ code == 2
+```
+
+第二個測試透過 `monkeypatch` 模擬 PostgreSQL connection failure，確認：
+
+```text
+psycopg.connect()
+→ RuntimeError
+→ main() 不吞掉 exception
+→ exception 向外 propagate
+```
+
+該 failure-path test 不會：
+
+```text
+呼叫真實農業部 API
+連線真實 PostgreSQL
+寫入 Parquet
+修改資料庫
+```
+
+執行：
+
+```text
+pytest tests/test_run_daily.py -v
+```
+
+結果：
+
+```text
+6 collected
+6 passed
+```
+
+### Full Regression Test
+
+完成 Runtime Failure Handling tests 後執行：
+
+```text
+pytest -v
+```
+
+結果：
+
+```text
+64 collected
+61 passed
+3 skipped
+```
+
+其中 3 個 skipped tests 仍為既有：
+
+```text
+tests/integration/test_postgres_load_integration.py
+```
+
+因未設定：
+
+```text
+RUN_POSTGRES_INTEGRATION=1
+```
+
+而依既有設計跳過。
+
+新增 Runtime Failure Handling tests 全數通過，且既有：
+
+```text
+Raw Validation
+Transform
+Profiling
+Data Quality
+Parquet Load
+Snapshot Diff
+PostgreSQL Load
+Pipeline Orchestration
+Runtime Entry Point
+```
+
+相關測試均無 regression。
+
+### Current Decision
+
+Runtime Failure Handling v1 目前定義為：
+
+```text
+Success
+→ exit code 0
+→ stdout 顯示 PipelineRunResult 摘要
+
+CLI usage error
+→ argparse 負責錯誤訊息
+→ exit code 2
+→ 不進入 Pipeline
+
+Unhandled runtime failure
+→ exception / traceback 保留
+→ stderr 顯示錯誤
+→ exit code 1
+```
+
+目前沒有證據顯示需要在 `scripts/run_daily.py` 新增 broad exception handling。
+
+因此：
+
+```text
+Runtime Configuration v1
+✅ VALIDATED
+
+Runtime Entry Point v1
+✅ COMPLETE
+
+Runtime Failure Handling v1
+✅ COMPLETE
+```
+
+本階段實際程式修改僅限：
+
+```text
+tests/test_run_daily.py
+```
+
+正式 Runtime Entry Point implementation 維持不變。
+
+下一步應先建立本階段 checkpoint，再進入 Runtime Operationalization 的下一個工程問題，例如正式排程 / 自動化執行；logging / observability 則應在有明確需求時再擴充。
+
