@@ -1,5 +1,6 @@
 import argparse
 from datetime import date
+from pathlib import Path
 
 import psycopg
 
@@ -33,12 +34,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    project_root = Path(__file__).resolve().parents[1]
+
     with psycopg.connect(
         autocommit=True,
     ) as connection:
         result = run_pipeline(
             query_date=args.date,
             connection=connection,
+            raw_output_dir=project_root / "data" / "raw",
+            processed_output_dir=project_root / "data" / "processed",
         )
 
     print(f"查詢日期：{result.query_date}")

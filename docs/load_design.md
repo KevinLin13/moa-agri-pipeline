@@ -2138,3 +2138,174 @@ tests/test_run_daily.py
 
 下一步應先建立本階段 checkpoint，再進入 Runtime Operationalization 的下一個工程問題，例如正式排程 / 自動化執行；logging / observability 則應在有明確需求時再擴充。
 
+
+---
+
+## 13. Runtime Operationalization v1 — Scheduler-like Execution Test
+
+本節記錄在尚未建立 Windows Task Scheduler 工作之前，以非專案工作目錄、未啟用 `.venv` 的 PowerShell，呼叫正式 Runtime Entry Point 的驗證結果。
+
+### Engineering Question
+
+當執行環境不在專案根目錄，且未啟用虛擬環境時，`scripts/run_daily.py` 是否能可靠啟動、完成 Pipeline，並將 Raw JSON、Metadata、Canonical Parquet 儲存在預期位置？
+
+本階段不建立 Windows Task Scheduler 工作、不新增 logging framework、也不調整 PostgreSQL Load Strategy。
+
+### Initial Observation — Working Directory Dependency
+
+以 `.venv\Scripts\python.exe` 及 `scripts\run_daily.py` 的絕對路徑，自下列非專案工作目錄執行：
+
+```text
+C:\Users\dearl\AppData\Local\Temp\moa-agri-scheduler-test
+```
+
+測試交易日期：
+
+```text
+2026-10-05
+```
+
+首次真實執行結果：
+
+```text
+Raw rows：1546
+Transformed rows：1546
+PostgreSQL rows：1546
+Exit Code：0
+```
+
+Raw JSON、Metadata 與 Parquet 當時實際儲存在測試工作目錄底下的 `data/raw`、`data/processed`，而非專案根目錄的 `data/`。可見 CLI 成功與 Exit Code `0` 並不能單獨證明檔案輸出位置正確。
+
+根因是 `run_pipeline()` 原有預設參數採用：
+
+```python
+raw_output_dir = Path("data/raw")
+processed_output_dir = Path("data/processed")
+```
+
+而 `run_daily.py` 原本沒有傳入明確的輸出目錄。相對路徑因此由執行程序的 Current Working Directory（CWD）解析。
+
+### Minimal Fix — Runtime Entry Point Output Paths
+
+保留 `run_pipeline()` 的既有預設參數與 Extract / Transform / Data Quality / PostgreSQL 核心邏輯，只修改 `scripts/run_daily.py`：
+
+```python
+from pathlib import Path
+
+project_root = Path(__file__).resolve().parents[1]
+
+result = run_pipeline(
+    query_date=args.date,
+    connection=connection,
+    raw_output_dir=project_root / "data" / "raw",
+    processed_output_dir=project_root / "data" / "processed",
+)
+```
+
+以上為 `main()` 相關修改片段，非完整函式。程式依據自身檔案位置推導專案根目錄，不硬編 Windows 使用者名稱或磁碟位置。`scripts/run_daily.py` 成為正式 Runtime 執行時的固定輸出路徑邊界。
+
+### Automated Tests
+
+更新 `tests/test_run_daily.py` 中既有 `test_main_connects_and_runs_pipeline`：透過 `monkeypatch.chdir(tmp_path)` 模擬非專案工作目錄，並確認傳給 `run_pipeline()` 的兩個輸出目錄符合預期且皆為絕對路徑。
+
+Runtime tests：
+
+```text
+pytest tests/test_run_daily.py -v
+6 passed
+```
+
+完整 regression tests：
+
+```text
+pytest -v
+64 collected
+61 passed
+3 skipped
+```
+
+3 個 skipped 仍為未啟用的 PostgreSQL integration tests，並非失敗。以上結果來自本輪使用者實際執行的測試輸出。
+
+### Real Scheduler-like Execution Validation After Fix
+
+再次從以下非專案工作目錄啟動正式入口，沒有執行虛擬環境的 `activate`：
+
+```text
+C:\Users\dearl\AppData\Local\Temp\moa-agri-scheduler-test
+```
+
+本次使用絕對路徑呼叫虛擬環境 Python 與 `scripts/run_daily.py`，交易日期仍為 `2026-10-05`。
+
+正式 Pipeline 回報：
+
+```text
+查詢日期：2026-10-05
+Raw rows：1546
+Transformed rows：1546
+PostgreSQL rows：1546
+Exit Code：0
+```
+
+本次 Snapshot 實際輸出：
+
+```text
+C:\Users\dearl\Kevin-agent\projects\moa-agri-pipeline\data\raw\agri_prices_20261014T134215.json
+C:\Users\dearl\Kevin-agent\projects\moa-agri-pipeline\data\raw\agri_prices_20261014T134215_metadata.json
+C:\Users\dearl\Kevin-agent\projects\moa-agri-pipeline\data\processed\agri_prices_20261014T134215.parquet
+```
+
+上述三個實際檔案皆已透過 `Test-Path -LiteralPath` 確認存在（`True`）。此外，以唯讀 SQL 再次查詢 PostgreSQL：
+
+```sql
+SELECT COUNT(*)
+FROM agri_prices
+WHERE trade_date = DATE '2026-10-05';
+```
+
+實際得到：
+
+```text
+PostgreSQL actual rows: 1546
+Exit Code: 0
+```
+
+故本輪已獨立確認 PostgreSQL 實際筆數與 Runtime 回報一致；並確認檔案沒有因為外部工作目錄而寫到測試目錄。
+
+### Git Scope Verification
+
+本輪 `git status --short` 顯示僅修改：
+
+```text
+ M scripts/run_daily.py
+ M tests/test_run_daily.py
+```
+
+`git diff --check` 未回報格式問題。後續將本節加入 `docs/load_design.md`，再一併檢查最終 diff 與 staged files。
+
+### Current Decision and Boundary
+
+```text
+Runtime Entry Point — Non-project CWD invocation
+✅ VERIFIED
+
+Raw / Metadata / Canonical output paths
+✅ VERIFIED IN PROJECT DATA DIRECTORY
+
+Runtime Exit Code
+✅ 0
+
+PostgreSQL actual row count
+✅ 1546 (trade_date = 2026-10-05)
+
+Automated regression
+✅ 61 passed, 3 skipped
+
+Windows Task Scheduler creation
+→ NOT STARTED
+```
+
+**Finding：** 使用絕對路徑啟動 Python 與 Script，並不會自動變更 Current Working Directory；正式 Runtime 必須對輸出路徑明確指定基準。本輪已在 `run_daily.py` 修正輸出目錄，並以真實 Pipeline 驗證，具備繼續評估 Windows Task Scheduler 的基本前提。
+
+**尚未驗證：** Windows Task Scheduler 的實際非互動式工作、排程服務帳戶權限、排程環境的 PostgreSQL credential / environment、失敗通知與排程歷史。這些不得由本輪 Scheduler-like Execution Test 的成功直接推論為已通過。
+
+下一步為更新文件、檢查最終 Git diff，並建立一致範圍的 checkpoint；本輪不進入 Task Scheduler 建置。

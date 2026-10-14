@@ -55,7 +55,10 @@ def test_parse_args_parses_required_date(monkeypatch):
     assert args.date == date(2026, 10, 4)
 
 
-def test_main_connects_and_runs_pipeline(monkeypatch, capsys):
+def test_main_connects_and_runs_pipeline(
+    monkeypatch, capsys, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
     # capsys：pytest 用來捕捉程式輸出到終端機內容的 fixture
     query_date = date(2026, 10, 4)
     connection = object()
@@ -79,9 +82,23 @@ def test_main_connects_and_runs_pipeline(monkeypatch, capsys):
         assert autocommit is True
         return FakeConnectionContext()
 
-    def fake_run_pipeline(*, query_date, connection):
+    def fake_run_pipeline(
+        *,
+        query_date,
+        connection,
+        raw_output_dir,
+        processed_output_dir,
+    ):
         assert query_date == date(2026, 10, 4)
         assert connection is globals_connection
+
+        project_root = RUN_DAILY_PATH.parents[1]
+
+        assert raw_output_dir == project_root / "data" / "raw"
+        assert processed_output_dir == project_root / "data" / "processed"
+
+        assert raw_output_dir.is_absolute()
+        assert processed_output_dir.is_absolute()
 
         return SimpleNamespace(
             query_date=query_date,
