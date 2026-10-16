@@ -2309,3 +2309,128 @@ Windows Task Scheduler creation
 **尚未驗證：** Windows Task Scheduler 的實際非互動式工作、排程服務帳戶權限、排程環境的 PostgreSQL credential / environment、失敗通知與排程歷史。這些不得由本輪 Scheduler-like Execution Test 的成功直接推論為已通過。
 
 下一步為更新文件、檢查最終 Git diff，並建立一致範圍的 checkpoint；本輪不進入 Task Scheduler 建置。
+
+---
+
+## 14. Runtime Operationalization v1 — Windows Task Scheduler Dry-Run PoC
+
+本節為第 13 節 Scheduler-like Execution Test 之後的新增驗證紀錄；第 13 節「Windows Task Scheduler creation → NOT STARTED」及其他舊階段狀態為當時的歷史紀錄，應以本節的最新結果判讀目前進度。
+
+### Engineering Question and Scope
+
+在不呼叫真實農業部 API、不產生 Raw / Metadata / Canonical 資料檔，也不變更 PostgreSQL 的前提下，Windows Task Scheduler 能否依設定時間，自動啟動本專案的 PowerShell wrapper，並以可辨識的 process exit code 結束？
+
+本階段定位為本機概念驗證（Proof of Concept, PoC），暫以 Windows 筆電執行。使用者無法保證個人電腦每天開機及連網，因此本機排程不視為長期正式營運方案；未來仍以雲端排程為方向。本節不實作雲端排程、重構 ETL、增加 logging framework 或修改 credentials。
+
+### Minimal Wrapper — `scripts/run_scheduled.ps1`
+
+本輪新增一個 PowerShell 包裝腳本，保留既有正式入口 `scripts/run_daily.py` 與其必要參數 `--date YYYY-MM-DD`，不修改 `src/moa_agri_pipeline/pipeline.py`。
+
+腳本的責任：
+
+- 透過 `$PSScriptRoot` 定位 `scripts/`，推導 project root；不硬編 Windows 使用者目錄。
+- 使用 project root 下的 `.venv\Scripts\python.exe` 和 `scripts\run_daily.py` 絕對路徑。
+- 使用 `Taipei Standard Time` 將 UTC 現在時間換算為台灣日期，指定**執行當天**的交易日期，而非前一天。
+- 執行前檢查 Python 與 `run_daily.py` 檔案是否存在。
+- `-DryRun` 時只顯示 project root、台灣日期、路徑檢查及預計執行指令，直接以 exit code `0` 結束，不呼叫 Python。
+- 不帶 `-DryRun` 時，先將 working directory 設為 project root，再以 `--date` 呼叫 Python；將 `$LASTEXITCODE` 傳回外層程序。
+- wrapper 自身發生未處理的 PowerShell 錯誤時，以 exit code `1` 結束。
+
+**執行安全邊界：** `-DryRun` 不會呼叫 API 或存取 PostgreSQL；但不帶 `-DryRun` 的正式模式會執行既有 Pipeline，可能依 trade-date replacement 策略取代指定交易日期的 PostgreSQL 資料。
+
+### Manual Validation — Date and Wrapper
+
+在筆電的互動式 PowerShell 中已完成：
+
+1. 時區邊界驗證：`2026-10-14T16:30:00+00:00` 換算為台灣日期 `2026-10-15`；通過。
+2. 實際台灣日期與 `YYYY-MM-DD` 格式驗證：2026-10-15；通過。
+3. `.venv` Python 與 `scripts/run_daily.py` 的 `Test-Path` 結果皆為 `True`；通過。
+4. 從 `C:\Windows\System32` 執行 wrapper `-DryRun`，正確顯示 project root、交易日期與完整 Python 指令；外層 exit code 為 `0`；通過。
+5. 失敗路徑測試：僅在目前 PowerShell 工作階段暫時將 `PGDATABASE` 改為不存在的名稱，直接執行不帶 `-DryRun` 的 wrapper；Python 在 `psycopg.connect()` 階段失敗，`Python exit code: 1` 與 `Wrapper exit code: 1` 一致。`try/finally` 測試指令包含環境變數復原步驟。
+
+上述失敗測試實際出現的是 `psycopg.OperationalError: ... fe_sendauth: no password supplied`，**不是**預期的 `database does not exist`。因此只能確認例外發生於資料庫連線階段且退出碼成功向外傳遞，不能將本次結果記為「已驗證不存在的資料庫錯誤訊息」。可能原因是 `pgpass.conf` 密碼條目與暫時指定的 database 名稱不匹配；此原因未另行驗證。本次沒有進入 `run_pipeline()`，所以沒有呼叫真實農業部 API 或執行 PostgreSQL replacement。
+
+### Windows Task Scheduler Configuration
+
+使用 Windows 工作排程器圖形介面建立一次性測試工作：
+
+```text
+Task name:       moa-agri-pipeline-dry-run-once
+Execution host:  Windows 筆電
+Account:         當時登入的本機 Windows 使用者（dearl）
+Logon option:    僅在使用者登入時執行
+Elevation:       不勾選「以最高權限執行」
+Trigger:         Once — 2026-10-15 20:40（筆電台灣本地時間）
+Action program:  powershell.exe
+Action args:     -NoProfile -ExecutionPolicy Bypass -File "C:\Users\dearl\Kevin-agent\projects\moa-agri-pipeline\scripts\run_scheduled.ps1" -DryRun
+Start in:        C:\Users\dearl\Kevin-agent\projects\moa-agri-pipeline
+```
+
+這個 Action 明確使用 `-DryRun`，本階段沒有設定每天重複執行，也沒有建立可寫入正式資料庫的週期性工作。Task Scheduler 工作設定保存在該 Windows 電腦；本輪未匯出或提交排程工作的 XML 定義。
+
+### Actual Scheduled Run Validation — 2026-10-15
+
+使用者提供 Windows 工作排程器截圖，顯示一次性工作於 `2026-10-15 20:40:00` 觸發，約在 `20:40:01` 完成。事件歷程包含：
+
+```text
+Event 107  Task triggered on scheduler
+Event 129  Created Task Process
+Event 100  Task Started
+Event 200  Action started
+Event 201  Action completed
+Event 102  Task completed
+```
+
+重新整理後，該工作「上次執行結果」顯示：
+
+```text
+操作順利完成 (0x0)
+```
+
+**Finding：** Windows Task Scheduler 確實依指定時間觸發所設定的 PowerShell Action，且該次工作程序以成功退出碼 `0x0` 結束。這與先前互動式 `-DryRun` 成功的結果一致，足以支持 **「一次性 Task Scheduler Dry-Run 啟動 PoC」已通過**。
+
+**證據邊界：** 本次沒有另外保存排程程序的 stdout / stderr，故不能單憑 `0x0` 獨立證明排程當下輸出的交易日期與路徑文字；也沒有在 Task Scheduler 下實際執行 Python ETL、農業部 API、Parquet 寫入或 PostgreSQL Load，更未驗證未登入執行、睡眠喚醒、錯過排程補跑、持續運作及雲端部署。
+
+### Tests, Checkpoint Scope and Next Stage
+
+本輪 wrapper 以 PowerShell 人工驗證、受控失敗案例與 Task Scheduler 事件紀錄驗收。**沒有新增 PowerShell 自動化測試，也尚未在本輪重新取得完整 pytest regression 結果**。先前第 13 節記錄的 `61 passed, 3 skipped` 屬於既有 Python 程式版本的歷史驗收結果，不應標為本輪重新執行。
+
+本輪準備提交的檔案限定為：
+
+```text
+scripts/run_scheduled.ps1
+docs/load_design.md
+```
+
+本機已確認：
+
+```text
+git status --short
+?? scripts/run_scheduled.ps1
+
+git rev-parse --short HEAD
+d8ef225
+```
+
+文件更新以前的 GitHub `main` 版本仍停在第 13 節；本節僅追加新階段驗證結果，保留第 1～13 節既有文字與歷史紀錄。
+
+目前最新階段：
+
+```text
+PowerShell wrapper — timezone / paths / manual Dry Run
+✅ VERIFIED
+
+PowerShell wrapper — non-zero exit propagation
+✅ VERIFIED FOR ONE CONNECTION FAILURE CASE
+
+Windows Task Scheduler — one-time Dry-Run invocation
+✅ VERIFIED (2026-10-15 20:40, 0x0)
+
+Scheduled real API + PostgreSQL end-to-end execution
+→ NOT STARTED
+
+Cloud scheduler
+→ FUTURE STAGE
+```
+
+下一個 checkpoint 應先審查本輪 Git diff、必要測試與文件，再由使用者自行決定 commit / push。後續若要進行真正的排程端對端測試，必須先告知真實 API 呼叫與指定交易日期 PostgreSQL replacement 的副作用，並再次取得使用者明確同意。
