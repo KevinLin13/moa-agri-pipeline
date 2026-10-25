@@ -28,6 +28,11 @@ def parse_args() -> argparse.Namespace:
         help="交易日期，格式：YYYY-MM-DD",
     )
 
+    parser.add_argument(
+        "--expected-database",
+        help="執行 Pipeline 前核對實際連線的 PostgreSQL 資料庫；不符則拒絕執行",
+    )
+
     return parser.parse_args()
 
 
@@ -39,6 +44,22 @@ def main() -> None:
     with psycopg.connect(
         autocommit=True,
     ) as connection:
+        # 排程測試的第二道防線：核對連線到的真實資料庫身分。
+        # 必須在 run_pipeline() 呼叫 API 或寫入資料之前完成。
+        if args.expected_database is not None:
+            actual_database = connection.execute(
+                "SELECT current_database()"
+            ).fetchone()[0]
+
+            if actual_database != args.expected_database:
+                raise RuntimeError(
+                    "資料庫安全檢查失敗："
+                    f"預期 {args.expected_database!r}，"
+                    f"實際 {actual_database!r}；Pipeline 未啟動"
+                )
+
+            print(f"Database verified: {actual_database}")
+
         result = run_pipeline(
             query_date=args.date,
             connection=connection,

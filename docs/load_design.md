@@ -2434,3 +2434,193 @@ Cloud scheduler
 ```
 
 下一個 checkpoint 應先審查本輪 Git diff、必要測試與文件，再由使用者自行決定 commit / push。後續若要進行真正的排程端對端測試，必須先告知真實 API 呼叫與指定交易日期 PostgreSQL replacement 的副作用，並再次取得使用者明確同意。
+
+
+---
+
+## 15. Runtime Operationalization v2 — Windows Task Scheduler Real ETL Acceptance
+
+本節接續第 14 節的一次性 Windows Task Scheduler Dry-Run PoC，記錄 2026-10-25 實際由 Windows Task Scheduler 啟動農業部 EIR030 ETL、產生快照並寫入**隔離 PostgreSQL 測試資料庫**的驗收結果。第 14 節「Scheduled real API + PostgreSQL end-to-end execution → NOT STARTED」為當時的歷史狀態，應以本節結果解讀最新進度；不回寫或改動第 1～14 節既有內容。
+
+### Engineering Question and Acceptance Criteria
+
+**問題：** Windows Task Scheduler 能否按預定時間，自動啟動完整 ETL，成功從農業部 API 擷取指定日期資料、轉換與品質檢查、保存 Raw/Metadata/Canonical 快照，並將交易行情寫入 PostgreSQL？
+
+**驗收標準：**
+
+1. 一次性排程確實被觸發，`LastTaskResult = 0`，並留下可檢視的執行日誌。
+2. 日誌中可確認正確交易日期、實際連線資料庫、Raw/Transform/PostgreSQL 筆數、快照路徑及 Python/Task exit code。
+3. 以**獨立 SQL 查詢**確認 PostgreSQL 測試資料庫中指定交易日期筆數與 ETL 回報一致。
+4. 以**獨立 Parquet 讀取**確認 Canonical 快照筆數及交易日期與測試資料庫一致。
+5. 測試全程不指定原有 `moa_agri` 為目標資料庫；禁止將測試結果推論為已驗證正式環境的常態排程。
+
+### Test Scope and Safety Controls
+
+```text
+Run date (Windows/Taipei): 2026-10-25
+Requested trade date:      2026-10-05
+Test PostgreSQL database:  moa_agri_sched_test
+Target table:              agri_prices
+Original database:         moa_agri (not a target of this test)
+Schedule:                  One-time, not recurring
+```
+
+先於 PostgreSQL 建立獨立的 `moa_agri_sched_test` 資料庫，使用既有 `sql/schema.sql` 建立 `agri_prices` 及兩個 unique indexes，並確認初始筆數為 `0`。使用 `pgpass.conf` 提供非互動式認證（密碼不寫入版本控制、文件或執行日誌）；`psql -w` 與 Python `psycopg.connect(autocommit=True)` 均驗證可連線到測試庫，Python 初始查詢為 `Rows: 0` 且 exit code `0`。
+
+本輪調整兩個執行入口：
+
+- `scripts/run_scheduled.ps1`：新增可選的 `-RequestedTradeDate`；未指定時仍使用台灣當天日期。新增 `-TargetDatabase`，此 PoC 的允許值限定為 `moa_agri_sched_test`。真實執行模式未指定測試資料庫時拒絕啟動；帶入參數時，設定子程序的 `PGHOST=localhost`、`PGPORT=5432`、`PGUSER=postgres`、`PGDATABASE=moa_agri_sched_test`，並傳遞 `--expected-database`。
+- `scripts/run_daily.py`：新增可選的 `--expected-database`；當有指定時，在 `run_pipeline()`（包含 API 呼叫與 Load）之前查詢 `SELECT current_database()`。若實際名稱與預期不符，拋出錯誤並拒絕啟動 Pipeline；未指定參數時，保留原有 CLI 執行路徑。
+
+另外新增 `tests/test_run_daily_db_guard.py`，驗證資料庫名稱符合時可繼續執行，以及不符合時會在呼叫 Pipeline 前停止。這個資料庫 guard 是針對本次排程 PoC 的防護；**不可推論所有直接使用 `run_daily.py` 而未提供 `--expected-database` 的執行也會被強制檢查。**
+
+在 PowerShell `-DryRun` 下，明確指定歷史日期、測試資料庫時 exit code `0`；指定不允許的 `moa_agri` 時由 `ValidateSet` 拒絕，exit code `1`。未指定日期的 Dry Run 仍能正確取台灣當天 `2026-10-25`。透過 PowerShell 輸出重新導向，人工 Dry Run 的 stdout/stderr 已成功保存成 `.log`，但這項人工驗證與下述真實排程證據分開記錄。
+
+### Automated and Real-Connection Safety Validation
+
+使用者於本機執行：
+
+```text
+pytest tests/test_run_daily.py tests/test_run_daily_db_guard.py -v
+8 passed
+
+pytest -v
+63 passed, 3 skipped
+```
+
+其中 `3 skipped` 為既有 PostgreSQL integration tests 未啟用，不能記為通過。新增資料庫 guard 的兩項測試已通過。
+
+額外使用**真實 PostgreSQL 連線**驗證 guard：實際連線 `moa_agri_sched_test`，並以臨時函式 `block_pipeline()` 攔截 `run_pipeline()`，確保測試不呼叫農業部 API、也不進行資料寫入。最終輸出：
+
+```text
+Database verified: moa_agri_sched_test
+PASS: expected=moa_agri_sched_test
+PASS: expected=moa_agri
+Exit code: 0
+```
+
+第二個 `PASS` 是指「當預期名稱故意設成 `moa_agri` 時，程式成功拒絕錯誤資料庫名稱」，**不是成功連接或寫入 `moa_agri`**。第一次測試因錯誤文字斷言不符而 exit code `1`，修正測試斷言後重新執行通過；並未修改實際 Pipeline 功能以迴避該測試。
+
+### One-Time Task Scheduler Execution — 2026-10-25
+
+使用者於 `%LOCALAPPDATA%\moa-agri-pipeline\run_real_once.ps1` 建立本機排程啟動器，負責：
+
+- 以固定日期 `2026-10-05`、`-TargetDatabase moa_agri_sched_test` 執行專案內 `scripts/run_scheduled.ps1`，**不帶 `-DryRun`**。
+- 將 stdout/stderr 寫入 `%LOCALAPPDATA%\moa-agri-pipeline\logs\scheduled_real_YYYYMMDD_HHMMSS.log`。
+- 將內層 Python 的 exit code 經 wrapper 傳至排程啟動器及 Task Scheduler。
+
+該啟動器與日誌存放在 Windows 使用者的 Local AppData，**不是本次 Git checkpoint 的檔案**。Task Scheduler 設定為目前 Windows 使用者登入狀態下的一次性工作；本輪沒有建立每日週期排程。
+
+實際排程設定與結果：
+
+```text
+Task name:       moa-agri-pipeline-real-once
+Scheduled at:    2026-10-25 07:38:22 (Windows local / Taipei)
+LastRunTime:     2026-10-25 07:38:22
+LastTaskResult:  0
+State afterward: Ready
+```
+
+`Ready` 是工作已就緒的狀態，不代表正在執行。此處以 `LastRunTime` 與 `LastTaskResult = 0`，搭配下方獨立日誌與資料庫查詢，判定此次一次性排程**確實執行且成功結束**。
+
+真實執行日誌：
+
+```text
+C:\Users\dearl\AppData\Local\moa-agri-pipeline\logs\scheduled_real_20261025_073823.log
+```
+
+日誌關鍵輸出：
+
+```text
+Trade date (explicit): 2026-10-05
+Target database (explicit): moa_agri_sched_test
+Python exists: True
+Script exists: True
+Database verified: moa_agri_sched_test
+查詢日期：2026-10-05
+Raw rows：1546
+Transformed rows：1546
+PostgreSQL rows：1546
+Python exit code: 0
+Task exit code: 0
+```
+
+該次執行回報產生以下快照：
+
+```text
+data/raw/agri_prices_20261025T073835.json
+data/raw/agri_prices_20261025T073835_metadata.json
+data/processed/agri_prices_20261025T073835.parquet
+```
+
+以上快照路徑來自真實執行日誌；本節另外對 Parquet 內容做了唯讀查核，並非宣稱已逐一比對 Raw 與 Metadata 全部欄位。
+
+### Independent PostgreSQL and Parquet Verification
+
+使用者在排程完成後，以 `psql -w -d moa_agri_sched_test` 執行唯讀查詢，結果如下：
+
+```text
+database_name       = moa_agri_sched_test
+total_rows          = 1546
+target_date_rows    = 1546  (trade_date = 2026-10-05)
+other_date_rows     = 0
+```
+
+接著使用 `pyarrow.parquet` 讀取該次 Canonical Parquet 快照，獨立確認：
+
+```text
+Parquet rows: 1546
+Target date rows: 1546
+Other date rows: 0
+PASS: Parquet row count and trade dates verified
+Exit code: 0
+```
+
+**Finding：** Windows Task Scheduler 已成功啟動本機一次性真實 ETL，API Extract、Transform、資料品質檢查、Canonical Parquet 產生與 PostgreSQL Load 均由 Pipeline 正常返回；資料庫身分保護、程序退出碼、排程結果及外部 SQL/Parquet 查詢互相支持。本次可判定 **Windows Task Scheduler Real ETL Acceptance — PASSED**。
+
+**驗證邊界：**
+
+- SQL 與 Parquet 已驗證總筆數、指定交易日期筆數及其他日期筆數一致；**尚未逐筆比較所有欄位值或完整 business key 集合**。
+- 本輪未獨立查詢原有 `moa_agri` 在排程前後的資料差異；「未以原資料庫為目標」由啟動參數、實際資料庫身分日誌與測試庫查詢支持，不應誤寫成已完成原資料庫的前後差異比對。
+- 本次測試在登入且電腦可執行排程的狀態下進行；未驗證未登入執行、睡眠喚醒、斷網重試、異常通知、排程補跑、每天長期運作或雲端排程。
+- 既有 `replace_trade_date_records()` 對指定日期採 DELETE + INSERT replacement；本次只在新建的隔離測試庫執行。API 回傳空資料的情況可能導致指定日期資料被清空，不能因本次成功而排除該風險。
+
+### Current Checkpoint Scope and Next Direction
+
+本輪應納入同一個 Git checkpoint 的專案檔案：
+
+```text
+scripts/run_daily.py                  # optional --expected-database guard
+scripts/run_scheduled.ps1             # test date / target DB / fail-closed
+tests/test_run_daily_db_guard.py      # new guard tests
+docs/load_design.md                   # append this acceptance record
+```
+
+依使用者當時 `git status --short`，提交前既有變更為 `scripts/run_daily.py`、`scripts/run_scheduled.ps1` 及新增的 `tests/test_run_daily_db_guard.py`；本節文件亦應同步更新，再檢查 `git diff`、`git diff --check`、stage 範圍後 Commit / Push。勿提交 `pgpass.conf`、本機排程啟動器、日誌、Raw JSON 或 Parquet 輸出。
+
+本階段最新狀態：
+
+```text
+Windows Task Scheduler one-time Dry Run
+✅ VERIFIED (2026-10-15)
+
+Windows Task Scheduler one-time real ETL
+✅ VERIFIED (2026-10-25)
+
+Real PostgreSQL target DB identity guard
+✅ VERIFIED
+
+PostgreSQL trade-date rows (independent query)
+✅ 1546 in moa_agri_sched_test
+
+Canonical Parquet rows and trade date
+✅ 1546 / 2026-10-05
+
+Full field-by-field PostgreSQL ↔ Parquet comparison
+→ NOT PERFORMED
+
+Recurring unattended production scheduling / cloud scheduler
+→ NOT VERIFIED / FUTURE STAGE
+```
+
+**Current decision：** 本次本機一次性真實排程驗收達成；結束本階段後，應先將程式碼、測試與本節文件整理為同一個 Git checkpoint。後續是否移轉至雲端排程、強化空快照保護及異常告警，應另開獨立工程問題處理，而非視為本輪已完成。
