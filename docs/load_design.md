@@ -2680,3 +2680,73 @@ pytest tests/integration/test_postgres_load_integration.py -v
 - 尚未測試重試、告警通知、長期排程、雲端執行或跨執行程序競爭條件。
 - `SKIPPED_EMPTY` 為防護性跳過，不會自行補抓或覆蓋原有資料；是否需要後續人工覆核與重新載入策略，保留後續階段設計。
 - 使用者完成本輪測試後，可將程式碼、測試及本節文件納入同一個 Git checkpoint；再規劃不依賴個人 Windows 電腦的持續執行方式。
+
+## 17. Cloud PostgreSQL Connectivity PoC — Neon Free Sandbox
+
+### Engineering Question
+
+在不依賴本機 PostgreSQL、也不執行既有 ETL Load 的情況下，Windows 本機 Python 是否能透過網際網路安全地連接獨立 Neon PostgreSQL 測試資料庫，並以唯讀 SQL 確認實際資料庫與 Role 身分？
+
+### Environment / Isolation
+
+本階段新增一個**獨立的雲端 Sandbox**，不遷移、不清理、不改寫原有 Windows PostgreSQL 資料庫。
+
+| Item | Value |
+| --- | --- |
+| Cloud provider / plan | Neon Free |
+| Organization | `kevin-data-lab` |
+| Neon Project | `moa-agri-pipeline-sandbox` |
+| Neon Branch | `production`（Neon 建立的預設分支名稱；**不是**已上線的正式營運資料庫） |
+| Region | AWS Asia Pacific 1（Singapore） |
+| PostgreSQL database | `moa_agri_cloud_test` |
+| Connected role | `moa_agri_cloud_test_owner` |
+| Connection type | Direct Connection（Connection pooling 關閉；不使用 `-pooler` 端點） |
+| Connection security parameters | `sslmode=require`、`channel_binding=require` |
+| Client | Windows、Python 3.12.10、`psycopg` |
+| Original local databases | `moa_agri`、`moa_agri_sched_test`（非本輪測試目標） |
+
+本輪透過 Neon Console 建立 Project 與指定測試資料庫。連線密碼在本機 Python 使用 `getpass()` 互動輸入，不寫入程式碼、文件或 Git。此處不保存含帳號密碼的完整 Connection String。
+
+### Read-Only Connection Validation — 2026-10-26
+
+使用者在既有專案的 Python 虛擬環境啟動 Python REPL，直接呼叫 `psycopg.connect()`，指定上述 Neon 測試資料庫、Role、Direct Connection Host 與加密連線參數，並設定 `connect_timeout=20`。
+
+連線物件建立成功後，僅執行以下唯讀 SQL：
+
+```sql
+SELECT current_database(), current_user;
+```
+
+使用者提供的實際 Python 執行輸出：
+
+```text
+>>> print(conn.execute(
+...     "SELECT current_database(), current_user"
+... ).fetchone())
+('moa_agri_cloud_test', 'moa_agri_cloud_test_owner')
+>>> conn.close()
+```
+
+**Finding / Result：Cloud PostgreSQL Connectivity PoC — PASSED（本機 Python → Neon）。**
+
+- `psycopg.connect()` 在指定 `sslmode=require`、`channel_binding=require` 的設定下成功建立連線。
+- `SELECT current_database()` 確認目標為 `moa_agri_cloud_test`。
+- `SELECT current_user` 確認實際 Role 為 `moa_agri_cloud_test_owner`。
+- `conn.close()` 正常返回。
+- 本次只執行 `SELECT`；**未執行** `INSERT`、`UPDATE`、`DELETE`、`CREATE TABLE` 或完整 ETL。
+- 未修改專案原始程式碼、PostgreSQL Load 行為或既有測試。
+- 本階段未重新執行 `pytest`；先前 `66 passed, 4 skipped` 與 PostgreSQL integration `4 passed` 是**前一階段驗證紀錄**，不可列為本次 Neon 的測試結果。
+
+### Verification Boundary / Current Decision
+
+本次驗證僅證明**本機 Windows Python 可成功連接獨立 Neon PostgreSQL，且 SQL 查詢取得預期資料庫與 Role 身分**。不代表已經完成：
+
+- GitHub Actions Runner → Neon 的連線或 GitHub Secrets 設定。
+- Neon 上的 `sql/schema.sql` 部署、`agri_prices` 表與 unique constraints 驗證。
+- Neon 上的寫入、Transaction / Rollback / Idempotency、Empty Snapshot Safety Guard 整合測試。
+- 正式資料遷移、排程、重試與失敗監控。
+- Raw JSON、Metadata、Parquet 的雲端持久化保存。
+
+`sslmode=require` 與 `channel_binding=require` 已由此次成功連線使用；本輪沒有另外進行獨立的 TLS 憑證驗證稽核。
+
+**Current decision：** 本機 → Neon 的唯讀連線驗收完成。此 checkpoint 僅需更新本文件，不新增 Pipeline 程式或測試。下一個獨立工程問題是**在 Neon Sandbox 建立並驗證既有 PostgreSQL Schema**；應先討論與定義驗收邊界，再執行可能改變 Neon Sandbox 的 SQL 操作。
