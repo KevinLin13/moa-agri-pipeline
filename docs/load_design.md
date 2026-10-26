@@ -2750,3 +2750,128 @@ SELECT current_database(), current_user;
 `sslmode=require` 與 `channel_binding=require` 已由此次成功連線使用；本輪沒有另外進行獨立的 TLS 憑證驗證稽核。
 
 **Current decision：** 本機 → Neon 的唯讀連線驗收完成。此 checkpoint 僅需更新本文件，不新增 Pipeline 程式或測試。下一個獨立工程問題是**在 Neon Sandbox 建立並驗證既有 PostgreSQL Schema**；應先討論與定義驗收邊界，再執行可能改變 Neon Sandbox 的 SQL 操作。
+
+
+## 18. Cloud PostgreSQL Schema Deployment & Validation — Neon Free Sandbox
+
+### Engineering Question
+
+既有 `sql/schema.sql` 能否在隔離的 Neon PostgreSQL 18 Sandbox 中建立符合本機 PostgreSQL Pipeline 使用需求的 `agri_prices` Schema，且不影響本機 `moa_agri` 與 `moa_agri_sched_test`？
+
+### Scope and Safety Boundary
+
+```text
+GitHub main baseline: 4e88cb92972f5f5aa0069564823e00a7974cca99
+Neon Project: moa-agri-pipeline-sandbox
+Neon Branch: production (Neon default branch; sandbox project)
+Target Database: moa_agri_cloud_test
+Target Role: moa_agri_cloud_test_owner
+PostgreSQL Version: 18.6 (fd34222)
+Target Schema: public
+Target Table: public.agri_prices
+Local Databases: moa_agri and moa_agri_sched_test (not targets)
+```
+
+本階段使用 Neon SQL Editor；未使用本機預設 `PG*` 設定執行部署，未啟動 `run_daily.py`、正式 ETL 或 PostgreSQL Integration Tests；未將 Credentials／Connection String 寫入 GitHub。
+
+### Preflight Validation — 2026-10-26
+
+使用者以 Neon SQL Editor 執行唯讀身分與物件狀態查詢，結果：
+
+```text
+database_name = moa_agri_cloud_test
+role_name = moa_agri_cloud_test_owner
+postgres_version = 18.6 (fd34222)
+schema_name = public
+can_create = true
+existing_table = NULL
+```
+
+另查詢 `pg_catalog.pg_class` 中 `agri_prices`、`uq_agri_prices_non_rest`、`uq_agri_prices_rest` 三個名稱，SQL Editor 顯示 `No result` 且執行成功（未查到符合條件物件）。
+
+### Deployment Observation
+
+沿用 GitHub 現有 `sql/schema.sql` 設計，包含一張資料表與兩個 partial unique indexes，無需修改 SQL 型別或鍵定義。部署操作期間，SQL Editor 曾回報：
+
+```text
+ERROR: relation "agri_prices" already exists
+SQLSTATE 42P07
+```
+
+此錯誤表示該次 `CREATE TABLE` 遇到同名既有物件；不能單憑這個錯誤推定整個交易已成功提交或失敗，也不能將該次 `CREATE TABLE` 記錄為成功。隨後以**獨立唯讀查詢**確認實際持久存在的物件如下：
+
+```text
+public.agri_prices
+public.uq_agri_prices_non_rest
+public.uq_agri_prices_rest
+```
+
+因此本輪採取以 PostgreSQL Catalog 與 `information_schema` 的**實際結構結果**作為驗收依據，不重跑 `CREATE TABLE`，也不使用 `DROP TABLE`。
+
+### Independent Schema Validation
+
+**欄位：** 查詢 `information_schema.columns`，確認 `agri_prices` 共 11 個欄位，順序、名稱、型別及 Nullable 狀態均符合 `sql/schema.sql`。
+
+```text
+trade_date     DATE              NOT NULL
+category_code  TEXT              NULLABLE
+crop_code      TEXT              NOT NULL
+crop_name      TEXT              NULLABLE
+market_code    TEXT              NOT NULL
+market_name    TEXT              NOT NULL
+upper_price    DOUBLE PRECISION  NOT NULL
+middle_price   DOUBLE PRECISION  NOT NULL
+lower_price    DOUBLE PRECISION  NOT NULL
+avg_price      DOUBLE PRECISION  NOT NULL
+volume         DOUBLE PRECISION  NOT NULL
+```
+
+**CHECK Constraints：** 查詢 `pg_constraint`，確認五項非負數限制（`upper_price`、`middle_price`、`lower_price`、`avg_price`、`volume` 各 >= 0），以及：
+
+```sql
+CONSTRAINT chk_rest_category_code
+CHECK (crop_code <> 'rest' OR category_code IS NOT NULL)
+```
+
+共 6 項 CHECK，與既有 `schema.sql` 一致。
+
+**Partial Unique Indexes：** 查詢 `pg_index` 與 `pg_get_indexdef()`，確認兩個索引均 `indisunique = true`、`indisvalid = true`，且實際定義如下：
+
+```sql
+CREATE UNIQUE INDEX uq_agri_prices_non_rest
+ON public.agri_prices USING btree (trade_date, crop_code, market_code)
+WHERE (crop_code <> 'rest'::text);
+
+CREATE UNIQUE INDEX uq_agri_prices_rest
+ON public.agri_prices USING btree (trade_date, category_code, market_code)
+WHERE (crop_code = 'rest'::text);
+```
+
+**資料筆數：** 最後獨立執行：
+
+```sql
+SELECT current_database() AS database_name, COUNT(*) AS total_rows
+FROM public.agri_prices;
+```
+
+實際結果：
+
+```text
+database_name = moa_agri_cloud_test
+total_rows = 0
+```
+
+### Acceptance Result and Verification Boundary
+
+**Result：Neon PostgreSQL Schema Deployment & Validation — PASSED（以獨立 Catalog／Schema 查詢及空表查詢驗收）。**
+
+- `public.agri_prices` 存在且 11 個欄位符合原定義。
+- 9 個 NOT NULL、2 個 Nullable 正確。
+- 6 個 CHECK Constraints 定義正確。
+- 2 個 partial unique indexes 有效、唯一且條件正確。
+- `COUNT(*) = 0`，目前 Neon 測試表沒有行情資料。
+- 沒有針對 Neon 執行 INSERT／DELETE／Integration Tests／正式 ETL；因此**尚未實測** Neon 上的交易替換、Rollback、Idempotency 或 Empty Snapshot Safety Guard。
+- 本輪未執行 `pytest`；以前的 `66 passed, 4 skipped` 與本機 PostgreSQL 整合測試成績只屬於歷史紀錄，不得當成本次 Neon 測試結果。
+- 本輪未另外查驗兩個本機資料庫的前後差異；本階段執行目標是 Neon SQL Editor 的雲端測試庫。
+
+**Current decision：** 本次雲端 Schema 驗收完成，沿用原 `sql/schema.sql`；此 checkpoint 僅需更新 `docs/load_design.md`，不需要修改 Python、SQL Schema 或 Integration Tests。下階段若要驗證 Neon 上的寫入行為，應另行審查隔離資料庫、測試 Fixture 與 Cleanup，先討論最小安全測試，再執行任何 DML。
