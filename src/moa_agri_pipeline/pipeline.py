@@ -23,6 +23,8 @@ class PipelineRunResult:
     raw_path: Path
     metadata_path: Path
     canonical_path: Path
+    postgres_load_status: str = "LOADED"
+    postgres_existing_rows: int | None = None
 
 
 def run_pipeline(
@@ -81,7 +83,7 @@ def run_pipeline(
     )
 
     # PostgreSQL
-    postgres_row_count = replace_trade_date_records(
+    load_result = replace_trade_date_records(
         connection,
         query_date,
         transformed_rows,
@@ -91,8 +93,10 @@ def run_pipeline(
         query_date=query_date,
         raw_row_count=len(rows),
         transformed_row_count=len(transformed_rows),
-        postgres_row_count=postgres_row_count,
+        postgres_row_count=load_result.written_rows,
         raw_path=raw_path,
         metadata_path=metadata_path,
         canonical_path=canonical_path,
+        postgres_load_status=load_result.status,
+        postgres_existing_rows=load_result.existing_rows,
     )

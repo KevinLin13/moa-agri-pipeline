@@ -2624,3 +2624,59 @@ Recurring unattended production scheduling / cloud scheduler
 ```
 
 **Current decision：** 本次本機一次性真實排程驗收達成；結束本階段後，應先將程式碼、測試與本節文件整理為同一個 Git checkpoint。後續是否移轉至雲端排程、強化空快照保護及異常告警，應另開獨立工程問題處理，而非視為本輪已完成。
+
+
+## 16. Pipeline Reliability v1 — Empty Snapshot Load Safety
+
+### Engineering Question
+
+當指定交易日期的農業部 API 快照由既有 N 筆變為最新 0 筆時，如何保留原始快照以供追查，同時避免 PostgreSQL 既有資料被直接清空？
+
+### Decision / Scope
+
+本輪採用 **Warn + Preserve Existing Rows**：空陣列 `[]` 仍是合法的 Raw／Canonical 輸入，不改動既有 Raw Validation、Transform、Data Quality 判準，也不將「新資料筆數下降」一律視為異常；僅在 PostgreSQL Load 邊界對**新快照為 0 筆**的情況查詢指定 `trade_date` 之原有筆數。
+
+| 指定交易日期的原有筆數 | 本次新快照筆數 | Load status | PostgreSQL 行為 |
+| ---: | ---: | --- | --- |
+| 任意（包含 0） | 大於 0 | `LOADED` | 沿用原本 transaction 內 DELETE + INSERT replacement |
+| 0 | 0 | `NO_DATA` | 不執行 DELETE／INSERT，記錄無資料 |
+| 大於 0 | 0 | `SKIPPED_EMPTY` | `WARNING: EMPTY_SNAPSHOT`，跳過 DELETE／INSERT，保留既有資料 |
+
+此處的 `SKIPPED_EMPTY` 是**載入安全防護**，不代表 API 回傳資料格式不合法，也不代表已證實來源異常。當最新合法快照為空、DB 原有資料非空時，PostgreSQL 會暫時保留舊版；Raw JSON、Extract Metadata 與 Canonical Parquet 仍保存本次空快照，兩者可能暫時不一致，須以 `Load status` 區分。
+
+### Implementation
+
+- `src/moa_agri_pipeline/load/postgres.py`：`replace_trade_date_records()` 對空快照先以參數化 SQL 查詢該交易日期現有筆數；依結果回傳 `PostgreSQLLoadResult(status, written_rows, existing_rows)`。原有資料大於 0 時記錄包含交易日期、原有筆數、新資料 0 筆與 `action=SKIP_LOAD` 的 `WARNING`，且不進入 DELETE／INSERT transaction。非空資料維持原有日期驗證與 transaction replacement。
+- `src/moa_agri_pipeline/pipeline.py`：`PipelineRunResult` 新增 `postgres_load_status` 與 `postgres_existing_rows`，繼續傳遞本次寫入筆數及 Raw／Metadata／Canonical 路徑。
+- `scripts/run_daily.py`、`scripts/check_api.py`：適配 Load Result，讓 CLI 可顯示成功更新、無資料或跳過更新的結果，不將 `SKIPPED_EMPTY` 錯誤描述為已成功寫入 0 筆且完成替換。
+- 既有 PostgreSQL 連線身分防護及 Windows 排程流程不因本次變更而取消；本輪不加入通知服務、雲端排程或新的監控資料表。
+
+### Validation Evidence (2026-10-25)
+
+使用者於 Windows 3.12.10 虛擬環境實際執行並回報：
+
+```text
+pytest tests/test_postgres_load.py tests/test_pipeline.py tests/test_run_daily.py tests/test_run_daily_db_guard.py -v
+15 passed
+
+pytest -v
+66 passed, 4 skipped
+```
+
+完整迴歸測試的 4 個 skipped，為需要明確啟用的 PostgreSQL integration tests，**非失敗**。使用者隨後確認連線的 PostgreSQL 資料庫為 `moa_agri_sched_test`，並查到隔離測試交易日期 `2099-01-02` 的既有筆數為 0；再以 `RUN_POSTGRES_INTEGRATION=1` 啟用真實資料庫整合測試：
+
+```text
+pytest tests/integration/test_postgres_load_integration.py -v
+4 passed in 0.43s
+```
+
+四項真實 PostgreSQL 測試涵蓋：正常 transaction replacement、插入失敗 rollback、相同資料重跑的冪等性、空快照時保留既有資料。最後一項整合測試使用 **1 筆測試資料 → 空快照**，比對操作前後資料列一致；**500 筆 → 0 筆**的筆數及 WARNING 內容則由 mock 單元測試驗證，不能誤稱真實資料庫已測試 500 筆。`0 → 0` 之 `NO_DATA` 行為同樣已有單元測試，未另列為真實 PostgreSQL integration case。
+
+**Finding：** 本輪已通過相關單元測試、完整回歸測試與隔離 PostgreSQL 整合測試，可確認指定日期的空快照不再觸發既有資料的替換刪除；非空 snapshot 的 replacement、rollback、idempotency 仍通過相應測試。
+
+### Verification Boundary / Next Direction
+
+- 未使用真實 API 0 筆回傳進行端到端排程驗收；本輪以 deterministic tests 與隔離 PostgreSQL 進行驗證。
+- 尚未測試重試、告警通知、長期排程、雲端執行或跨執行程序競爭條件。
+- `SKIPPED_EMPTY` 為防護性跳過，不會自行補抓或覆蓋原有資料；是否需要後續人工覆核與重新載入策略，保留後續階段設計。
+- 使用者完成本輪測試後，可將程式碼、測試及本節文件納入同一個 Git checkpoint；再規劃不依賴個人 Windows 電腦的持續執行方式。

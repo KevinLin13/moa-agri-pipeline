@@ -105,6 +105,8 @@ def test_main_connects_and_runs_pipeline(
             raw_row_count=10,
             transformed_row_count=10,
             postgres_row_count=10,
+            postgres_load_status="LOADED",
+            postgres_existing_rows=None,
             raw_path="data/raw/raw.json",
             metadata_path="data/raw/metadata.json",
             canonical_path="data/processed/data.parquet",
@@ -139,6 +141,7 @@ def test_main_connects_and_runs_pipeline(
     assert "Raw rows：10" in output
     assert "Transformed rows：10" in output
     assert "PostgreSQL rows：10" in output
+    assert "PostgreSQL Load status：LOADED" in output
 
 def test_parse_args_exits_with_code_2_when_date_is_missing(
     monkeypatch,
@@ -179,3 +182,35 @@ def test_main_propagates_connection_error(monkeypatch):
         match="database unavailable",
     ):
         run_daily.main()
+
+
+def test_main_reports_skipped_empty_status(monkeypatch, capsys):
+    class FakeContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("sys.argv", ["run_daily.py", "--date", "2026-10-05"])
+    monkeypatch.setattr(run_daily.psycopg, "connect", lambda **kwargs: FakeContext())
+    monkeypatch.setattr(
+        run_daily,
+        "run_pipeline",
+        lambda **kwargs: SimpleNamespace(
+            query_date=date(2026, 10, 5),
+            raw_row_count=0,
+            transformed_row_count=0,
+            postgres_row_count=0,
+            postgres_load_status="SKIPPED_EMPTY",
+            postgres_existing_rows=500,
+            raw_path="raw.json",
+            metadata_path="metadata.json",
+            canonical_path="canonical.parquet",
+        ),
+    )
+
+    run_daily.main()
+    output = capsys.readouterr().out
+    assert "PostgreSQL Load status：SKIPPED_EMPTY" in output
+    assert "PostgreSQL existing rows：500" in output

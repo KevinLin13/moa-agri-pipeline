@@ -5,6 +5,7 @@ import psycopg
 import pytest
 
 from moa_agri_pipeline.load.postgres import (
+    PostgreSQLLoadResult,
     replace_trade_date_records,
 )
 
@@ -113,16 +114,10 @@ def connection():
     connection.close()
 
 
-def test_replace_trade_date_records_commits_replacement(
-    connection,
-):
-    result = replace_trade_date_records(
-        connection,
-        TEST_DATE,
-        [NEW_RECORD],
-    )
+def test_replace_trade_date_records_commits_replacement(connection):
+    result = replace_trade_date_records(connection, TEST_DATE, [NEW_RECORD])
 
-    assert result == 1
+    assert result == PostgreSQLLoadResult(status="LOADED", written_rows=1)
 
     row = connection.execute(
         """
@@ -145,22 +140,15 @@ def test_replace_trade_date_records_commits_replacement(
     )
 
 
-def test_replace_trade_date_records_rolls_back_on_failure(
-    connection,
-):
+def test_replace_trade_date_records_rolls_back_on_failure(connection):
     duplicate_record = NEW_RECORD.copy()
     duplicate_record["crop_name"] = "重複作物"
 
-    with pytest.raises(
-        psycopg.errors.UniqueViolation
-    ):
+    with pytest.raises(psycopg.errors.UniqueViolation):
         replace_trade_date_records(
             connection,
             TEST_DATE,
-            [
-                NEW_RECORD,
-                duplicate_record,
-            ],
+            [NEW_RECORD, duplicate_record],
         )
 
     rows = connection.execute(
@@ -177,22 +165,12 @@ def test_replace_trade_date_records_rolls_back_on_failure(
     ).fetchall()
 
     assert rows == [
-        (
-            "原始作物",
-            "原始市場",
-            9.0,
-            100.0,
-        )
+        ("原始作物", "原始市場", 9.0, 100.0)
     ]
 
-def test_replace_trade_date_records_is_idempotent(
-    connection,
-):
-    first_result = replace_trade_date_records(
-        connection,
-        TEST_DATE,
-        [NEW_RECORD],
-    )
+
+def test_replace_trade_date_records_is_idempotent(connection):
+    first_result = replace_trade_date_records(connection, TEST_DATE, [NEW_RECORD])
 
     rows_after_first_load = connection.execute(
         """
@@ -213,11 +191,7 @@ def test_replace_trade_date_records_is_idempotent(
         (TEST_DATE,),
     ).fetchall()
 
-    second_result = replace_trade_date_records(
-        connection,
-        TEST_DATE,
-        [NEW_RECORD],
-    )
+    second_result = replace_trade_date_records(connection, TEST_DATE, [NEW_RECORD])
 
     rows_after_second_load = connection.execute(
         """
@@ -238,8 +212,8 @@ def test_replace_trade_date_records_is_idempotent(
         (TEST_DATE,),
     ).fetchall()
 
-    assert first_result == 1
-    assert second_result == 1
+    assert first_result == PostgreSQLLoadResult(status="LOADED", written_rows=1)
+    assert second_result == PostgreSQLLoadResult(status="LOADED", written_rows=1)
 
     assert rows_after_second_load == rows_after_first_load
 
@@ -257,3 +231,23 @@ def test_replace_trade_date_records_is_idempotent(
             200.0,
         )
     ]
+
+
+def test_empty_snapshot_preserves_existing_record(connection):
+    """僅在測試資料庫執行；查核 1→0 時不改變現有資料。"""
+    before = connection.execute(
+        "SELECT * FROM agri_prices WHERE trade_date = %s",
+        (TEST_DATE,),
+    ).fetchall()
+
+    result = replace_trade_date_records(connection, TEST_DATE, [])
+
+    after = connection.execute(
+        "SELECT * FROM agri_prices WHERE trade_date = %s",
+        (TEST_DATE,),
+    ).fetchall()
+
+    assert result == PostgreSQLLoadResult(
+        status="SKIPPED_EMPTY", written_rows=0, existing_rows=1
+    )
+    assert after == before

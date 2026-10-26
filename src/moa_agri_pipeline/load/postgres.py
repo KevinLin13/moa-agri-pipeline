@@ -1,7 +1,19 @@
+from dataclasses import dataclass
 from datetime import date
-from typing import Any
+import logging
+from typing import Any, Literal
 
 from psycopg import Connection
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PostgreSQLLoadResult:
+    status: Literal["LOADED", "NO_DATA", "SKIPPED_EMPTY"]
+    written_rows: int
+    existing_rows: int | None = None
 
 
 INSERT_SQL = """
@@ -29,8 +41,8 @@ def replace_trade_date_records(
     connection: Connection,
     trade_date: date,
     records: list[dict[str, Any]],
-) -> int:
-    """以最新 canonical snapshot 取代指定交易日期的資料。"""
+) -> PostgreSQLLoadResult:
+    """以最新快照替換指定日期；空快照不清除已存在的資料。"""
 
     for index, record in enumerate(records):
         if record["trade_date"] != trade_date:
@@ -38,6 +50,37 @@ def replace_trade_date_records(
                 f"第 {index + 1} 筆 trade_date "
                 f"不符合 target trade_date"
             )
+
+    if not records:
+        # 空快照是來源允許的格式；僅在 Load 邊界檢查既有資料。
+        # 避免「原本 N 筆 → 新快照 0 筆」誤觸 DELETE。
+        existing_rows = connection.execute(
+            "SELECT COUNT(*) FROM agri_prices WHERE trade_date = %s",
+            (trade_date,),
+        ).fetchone()[0]
+
+        if existing_rows > 0:
+            logger.warning(
+                "EMPTY_SNAPSHOT: trade_date=%s existing_rows=%d "
+                "incoming_rows=0 action=SKIP_LOAD",
+                trade_date,
+                existing_rows,
+            )
+            return PostgreSQLLoadResult(
+                status="SKIPPED_EMPTY",
+                written_rows=0,
+                existing_rows=existing_rows,
+            )
+
+        logger.info(
+            "NO_DATA: trade_date=%s existing_rows=0 incoming_rows=0",
+            trade_date,
+        )
+        return PostgreSQLLoadResult(
+            status="NO_DATA",
+            written_rows=0,
+            existing_rows=0,
+        )
 
     rows = [
         (
@@ -65,11 +108,9 @@ def replace_trade_date_records(
                 """,
                 (trade_date,),
             )
+            cursor.executemany(INSERT_SQL, rows)
 
-            if rows:
-                cursor.executemany(
-                    INSERT_SQL,
-                    rows,
-                )
-
-    return len(records)
+    return PostgreSQLLoadResult(
+        status="LOADED",
+        written_rows=len(records),
+    )

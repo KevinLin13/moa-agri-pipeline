@@ -77,6 +77,9 @@ def main() -> None:
         f"PostgreSQL rows："
         f"{result.postgres_row_count}"
     )
+    print(f"PostgreSQL Load status：{result.postgres_load_status}")
+    if result.postgres_existing_rows is not None:
+        print(f"PostgreSQL existing rows：{result.postgres_existing_rows}")
     print(f"Raw：{result.raw_path}")
     print(f"Metadata：{result.metadata_path}")
     print(f"Canonical：{result.canonical_path}")

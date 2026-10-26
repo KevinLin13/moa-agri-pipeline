@@ -71,6 +71,8 @@ def test_allows_expected_database(monkeypatch, capsys):
             raw_row_count=10,
             transformed_row_count=10,
             postgres_row_count=10,
+            postgres_load_status="LOADED",
+            postgres_existing_rows=None,
             raw_path="raw.json",
             metadata_path="metadata.json",
             canonical_path="canonical.parquet",

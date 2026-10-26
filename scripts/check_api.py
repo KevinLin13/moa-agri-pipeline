@@ -82,17 +82,17 @@ def main() -> None:
     with psycopg.connect(
         autocommit=True,
     ) as connection:
-        postgres_row_count = replace_trade_date_records(
+        load_result = replace_trade_date_records(
             connection,
             query_date,
             transformed_rows,
         )
 
     print("\nPostgreSQL Load：")
-    print(
-        f"Trade-Date Replacement 完成，共寫入 "
-        f"{postgres_row_count} 筆"
-    )
+    print(f"Load status：{load_result.status}")
+    print(f"本次寫入：{load_result.written_rows} 筆")
+    if load_result.existing_rows is not None:
+        print(f"原有資料：{load_result.existing_rows} 筆")
 
     # Execution Summary
     print(f"\n查詢日期：{query_date}")
