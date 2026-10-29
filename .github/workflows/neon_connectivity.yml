@@ -1,0 +1,76 @@
+
+name: Neon PostgreSQL Connectivity Check
+
+# 只有手動點擊時才執行
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-neon-connection:
+    name: Verify Neon database and role (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      NEON_HOST: ${{ secrets.NEON_HOST }}
+      NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Psycopg
+        run: python -m pip install 'psycopg[binary]>=3.2,<4'
+
+      - name: Check Neon connection without writing data
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import psycopg
+
+          host = os.environ.get('NEON_HOST')
+          password = os.environ.get('NEON_PASSWORD')
+
+          if not host or not password:
+              sys.exit('Missing NEON_HOST or NEON_PASSWORD GitHub Actions secret.')
+
+          expected_database = 'moa_agri_cloud_test'
+          expected_role = 'moa_agri_cloud_test_owner'
+
+          try:
+              with psycopg.connect(
+                  host=host,
+                  port=5432,
+                  dbname=expected_database,
+                  user=expected_role,
+                  password=password,
+                  sslmode='require',
+                  channel_binding='require',
+                  connect_timeout=20,
+                  autocommit=True,
+                  options='-c default_transaction_read_only=on',
+              ) as conn:
+                  actual_database, actual_role = conn.execute(
+                      'SELECT current_database(), current_user'
+                  ).fetchone()
+
+                  if (actual_database, actual_role) != (
+                      expected_database,
+                      expected_role,
+                  ):
+                      sys.exit('Database or role does not match the Neon sandbox.')
+
+                  print('PASS: connected to expected Neon sandbox database and role.')
+
+          except psycopg.Error as exc:
+              sys.exit(
+                  f'FAIL: PostgreSQL connection/query error ({type(exc).__name__}).'
+              )
+          PY
