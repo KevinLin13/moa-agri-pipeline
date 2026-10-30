@@ -3017,3 +3017,67 @@ test_key_rows = 0
 
 **Current decision：** 此基本交易 checkpoint 已完成。下一個獨立工程問題是以經審查的隔離測試方式，驗證既有 `replace_trade_date_records()` 在 Neon 真的遭遇 INSERT 例外時，DELETE + INSERT 是否一起回滾；測試前必須重新核對連線目標與 Fixture／Cleanup，不直接執行既有整合測試。
 
+## 20. Cloudflare R2 Snapshot Persistence PoC — Isolated Round-Trip Validation
+
+### Purpose / Scope
+
+本階段只驗證 **GitHub Actions 能否將一組 Snapshot 檔案存入 Cloudflare R2，下載後驗證內容，並在 Workflow 結束後仍可由 R2 管理介面查看物件**。
+
+這是與正式 ETL 隔離的 PoC，不代表正式 Pipeline 已接入 R2，也不代表已驗證長期保存可靠性。
+
+### Implementation Baseline
+
+- GitHub `main` Commit：`dc7a34449a81811f756efe503a5ad11c5a83a88a`
+- Commit Title：`test: add Cloudflare R2 snapshot persistence PoC`
+- Workflow：`.github/workflows/r2_snapshot_poc.yml`
+- Script：`scripts/r2_snapshot_poc.py`
+- 觸發方式：僅 `workflow_dispatch`（手動觸發），無排程。
+- Bucket：`moa-agri-pipeline-snapshots`（Standard；Public Access Disabled）。
+- GitHub Secrets：`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。
+- GitHub Variables：`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`。
+- 資料來源：合成測試資料（`test_only: true`；測試日期 `2099-01-03`），不呼叫農業部 API。
+
+PoC 使用既有 `save_raw_json()`、`save_canonical_parquet()` 產檔；Metadata 另外明確標記為 synthetic，避免誤記為真實 MOA 資料。三個檔案共用從 Raw 檔名取得的 Snapshot ID。
+
+### Validation Method
+
+1. GitHub Actions 產生 Raw JSON、Metadata JSON、Canonical Parquet 三個合成測試物件。
+2. 透過 R2 S3-compatible API 上傳至獨立前綴 `poc/r2-snapshot-roundtrip/<run_id>/attempt-<attempt>/`。
+3. 每個物件上傳後立即下載，比對下載位元組與原始位元組的 SHA-256。
+4. 解析下載的 Metadata，確認 `test_only`、`raw_file` 與 Snapshot ID 關聯。
+5. 讀取下載的 Parquet，確認 Canonical Schema 與資料內容相同。
+6. Workflow 完成後，再由 Cloudflare R2 Dashboard 獨立查看物件是否仍存在。
+
+本 PoC 不執行 PostgreSQL 寫入、不呼叫正式 `run_pipeline()`，也不執行 R2 DELETE。測試物件刻意保留，以供獨立檢查。
+
+### Observed Result / Evidence
+
+**Result：R2 Snapshot Round-Trip PoC — PASSED（2026-10-29，Asia/Taipei）。**
+
+- GitHub Actions：`R2 Snapshot Round-Trip PoC #1`，`main`，Commit `dc7a344`，狀態 `Success`，總執行時間約 20 秒（使用者提供執行畫面）。
+- R2 Bucket：`moa-agri-pipeline-snapshots`。
+- GitHub Run ID：`40890234126`；Attempt：`1`。
+- R2 Object Prefix：`poc/r2-snapshot-roundtrip/40890234126/attempt-1/`。
+- 共用 Snapshot ID：`20261029T141910`。
+- 使用者於 Cloudflare R2 Dashboard 獨立確認下列三個物件存在，且均為 Standard Storage：
+
+| Object Key（相對於上述 Prefix） | Dashboard 顯示大小 |
+| --- | ---: |
+| `raw/agri_prices_20261029T141910.json` | 326 B |
+| `raw/agri_prices_20261029T141910_metadata.json` | 260 B |
+| `processed/agri_prices_20261029T141910.parquet` | 3.32 KB |
+
+Workflow 的成功狀態與已審閱的程式邏輯相符：三個物件的上傳／下載、SHA-256、Metadata 關聯、Parquet Schema 與內容檢查均須通過，腳本才會正常結束。Dashboard 截圖另外支持「測試結束後仍可查見三個物件」；截圖本身不等於獨立重新計算 SHA-256。
+
+### Acceptance Boundary / Known Limitations
+
+- **已驗證**：手動 GitHub Actions 可對指定 R2 Bucket 進行合成 Snapshot 的上傳、下載與內容完整性檢查；結束後三個測試物件仍可見。
+- **未驗證**：真實農業部 API 資料、正式 ETL 串接、自動排程、Neon PostgreSQL 寫入、跨日長期保存可靠性，以及失敗後補償／重試與三物件整組原子性。
+- Snapshot ID 目前由 `save_raw_json()` 以 `datetime.now()` 產生，不含明確時區標記且精度為秒；正式雲端部署前需明確定義時區與碰撞處理。
+- 本次執行只驗證單次成功路徑，不能因此推定部分上傳失敗時可以自動回滾或清理。
+- GitHub Actions 畫面出現 `actions/checkout@v4` 的 Node.js 20 棄用警告及 Ubuntu Runner 遷移通知，未影響本次成功結果；後續維護應另行處理。
+- 本輪未新增／修改正式 ETL、Schema、Neon 資料或每日排程；沒有執行正式 ETL 的 `pytest` 驗收。
+
+### Current Decision / Next Engineering Question
+
+**本次 R2 Snapshot Persistence PoC 階段驗收完成。** 先保存本段驗收紀錄並 Commit／Push；下一個獨立工程問題是設計可重複使用的 R2 Snapshot Upload 元件，以及上傳失敗時的處置與驗證邊界。正式接入 `run_pipeline()` 前，需先討論物件命名、冪等性、三物件一致性、時區與失敗語意，不直接啟用排程或寫入 Neon。
